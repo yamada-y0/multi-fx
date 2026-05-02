@@ -1,6 +1,10 @@
 package currency
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // Pair は通貨ペアを表す文字列型
 type Pair string
@@ -16,12 +20,12 @@ const (
 // Rate はある時点での通貨ペアのレート
 type Rate struct {
 	Pair      Pair
-	Bid       float64
-	Ask       float64
+	Bid       decimal.Decimal
+	Ask       decimal.Decimal
 	Timestamp time.Time
 }
 
 // Mid は仲値（Bid と Ask の中間）を返す
-func (r Rate) Mid() float64 {
-	return (r.Bid + r.Ask) / 2
+func (r Rate) Mid() decimal.Decimal {
+	return r.Bid.Add(r.Ask).Div(decimal.NewFromInt(2))
 }

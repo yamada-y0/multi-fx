@@ -4,16 +4,17 @@ import (
 	"context"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
 )
 
 // NetOrder は Aggregator がネッティング後に Broker へ渡す集約注文
 type NetOrder struct {
-	Pair     currency.Pair
-	Side     pool.Side
-	NetLots  float64 // ネッティング後の絶対ロット数
-	Sources  []pool.OrderRequest
+	Pair      currency.Pair
+	Side      pool.Side
+	NetLots   decimal.Decimal // ネッティング後の絶対ロット数
+	Sources   []pool.OrderRequest
 	CreatedAt time.Time
 }
 

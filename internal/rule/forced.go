@@ -1,6 +1,9 @@
 package rule
 
-import "github.com/yamada/multi-fx/internal/pool"
+import (
+	"github.com/shopspring/decimal"
+	"github.com/yamada/multi-fx/internal/pool"
+)
 
 // Action は強制アクションの種別（決定論的ルールエンジンの出力）
 type Action int
@@ -21,19 +24,19 @@ type Rule interface {
 	Evaluate(snap pool.SubPoolSnapshot) Action
 }
 
-// OriginRule は「実質残高が初期割り当てを下回ったら強制停止」の原点ルール
+// FloorRule は「実質残高が初期割り当てを下回ったら強制停止」のフロアルール
 // これが全戦略共通の安全装置
-type OriginRule struct {
+type FloorRule struct {
 	// ThresholdRatio: デフォルト 1.0（初期残高と同額で発動）
 	// 0.9 なら初期残高の 90% を下回ったときに発動
 	ThresholdRatio float64
 }
 
-func (r OriginRule) Name() string { return "origin_rule" }
+func (r FloorRule) Name() string { return "floor_rule" }
 
-func (r OriginRule) Evaluate(snap pool.SubPoolSnapshot) Action {
-	threshold := snap.InitialBalance * r.ThresholdRatio
-	if snap.EquityBalance() < threshold {
+func (r FloorRule) Evaluate(snap pool.SubPoolSnapshot) Action {
+	threshold := snap.InitialBalance.Mul(decimal.NewFromFloat(r.ThresholdRatio))
+	if snap.EquityBalance().LessThan(threshold) {
 		return ActionSuspend
 	}
 	return ActionNone

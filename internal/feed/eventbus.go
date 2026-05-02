@@ -11,7 +11,7 @@ const (
 	EventSubPoolTerminated EventType = "subpool.terminated"
 	EventOrderSubmitted    EventType = "order.submitted"
 	EventOrderFilled       EventType = "order.filled"
-	EventOriginRuleFired   EventType = "rule.origin_fired" // 原点ルール発動
+	EventFloorRuleFired    EventType = "rule.floor_fired"  // フロアルール発動
 )
 
 // Event はシステム内部を流れるイベント

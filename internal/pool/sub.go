@@ -3,6 +3,7 @@ package pool
 import (
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/pkg/currency"
 )
 
@@ -19,12 +20,12 @@ const (
 
 // Position は SubPool が保有する1ポジション
 type Position struct {
-	ID         string
-	Pair       currency.Pair
-	Side       Side
-	Lots       float64
-	OpenPrice  float64
-	OpenedAt   time.Time
+	ID        string
+	Pair      currency.Pair
+	Side      Side
+	Lots      decimal.Decimal
+	OpenPrice decimal.Decimal
+	OpenedAt  time.Time
 }
 
 // OrderRequest は SubPool から Order Aggregator への発注依頼
@@ -33,8 +34,8 @@ type OrderRequest struct {
 	SubPoolID   SubPoolID
 	Pair        currency.Pair
 	Side        Side
-	Lots        float64
-	StopLoss    float64 // 必須。逆指値なしの発注は打たない設計。
+	Lots        decimal.Decimal
+	StopLoss    decimal.Decimal // 必須。逆指値なしの発注は打たない設計。
 	RequestedAt time.Time
 }
 
@@ -42,10 +43,10 @@ type OrderRequest struct {
 type SubPoolSnapshot struct {
 	ID             SubPoolID
 	State          LifecycleState
-	InitialBalance float64 // 原点ルール判定基準（生成時に確定、以後不変）
-	CurrentBalance float64
-	UnrealizedPnL  float64
-	RealizedPnL    float64
+	InitialBalance decimal.Decimal // フロアルール判定基準（生成時に確定、以後不変）
+	CurrentBalance decimal.Decimal
+	UnrealizedPnL  decimal.Decimal
+	RealizedPnL    decimal.Decimal
 	Positions      []Position
 	StrategyName   string
 	CreatedAt      time.Time
@@ -53,13 +54,13 @@ type SubPoolSnapshot struct {
 }
 
 // EquityBalance は含み損益を含む実質残高を返す
-func (s SubPoolSnapshot) EquityBalance() float64 {
-	return s.CurrentBalance + s.UnrealizedPnL
+func (s SubPoolSnapshot) EquityBalance() decimal.Decimal {
+	return s.CurrentBalance.Add(s.UnrealizedPnL)
 }
 
-// IsOriginRuleBroken は原点ルール（実質残高が初期割り当て未満）に抵触しているかを返す
-func (s SubPoolSnapshot) IsOriginRuleBroken() bool {
-	return s.EquityBalance() < s.InitialBalance
+// IsFloorRuleBreached はフロアルール（実質残高が初期割り当て未満）に抵触しているかを返す
+func (s SubPoolSnapshot) IsFloorRuleBreached() bool {
+	return s.EquityBalance().LessThan(s.InitialBalance)
 }
 
 // SubPool は仮想口座のインターフェース
@@ -75,7 +76,7 @@ type SubPool interface {
 	Suspend() error
 
 	// Terminate は Suspended → Terminated へ遷移し、返還額を返す
-	Terminate() (returnAmount float64, err error)
+	Terminate() (returnAmount decimal.Decimal, err error)
 
 	// OnRate はレート更新通知を受け取り、含み損益を再計算する
 	OnRate(r currency.Rate)
@@ -89,7 +90,7 @@ type Fill struct {
 	RequestID   string
 	Pair        currency.Pair
 	Side        Side
-	Lots        float64
-	FilledPrice float64
+	Lots        decimal.Decimal
+	FilledPrice decimal.Decimal
 	FilledAt    time.Time
 }

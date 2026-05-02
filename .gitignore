@@ -1,0 +1,26 @@
+# Binaries
+/bin/
+*.exe
+
+# Go build cache
+*.test
+*.out
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Terraform (将来のインフラ管理用)
+**/.terraform/
+*.tfstate
+*.tfstate.backup

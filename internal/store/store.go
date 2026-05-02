@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 
+	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/pool"
 )
 
@@ -15,6 +16,6 @@ type StateStore interface {
 	ListSubPools(ctx context.Context) ([]pool.SubPoolSnapshot, error)
 
 	// MasterPool 残高の永続化
-	SaveMasterBalance(ctx context.Context, balance float64) error
-	LoadMasterBalance(ctx context.Context) (float64, error)
+	SaveMasterBalance(ctx context.Context, balance decimal.Decimal) error
+	LoadMasterBalance(ctx context.Context) (decimal.Decimal, error)
 }

@@ -3,6 +3,7 @@ package commander
 import (
 	"context"
 
+	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/internal/rule"
 )
@@ -23,7 +24,7 @@ const (
 type Directive struct {
 	Action       ActionType
 	TargetID     pool.SubPoolID // ActionCreate のときは空
-	Funds        float64        // ActionCreate のときの初期割り当て額
+	Funds        decimal.Decimal // ActionCreate のときの初期割り当て額
 	StrategyName string         // ActionCreate のときの戦略名
 	Instruction  string         // ActionSendInstruction のときの指示テキスト
 	Rationale    string         // LLM の判断理由（監査ログ用）
