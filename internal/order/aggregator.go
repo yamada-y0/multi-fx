@@ -5,44 +5,71 @@ import (
 
 	"github.com/yamada/multi-fx/internal/broker"
 	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/pkg/currency"
+	pkgorder "github.com/yamada/multi-fx/pkg/order"
 )
 
 // ManagedOrder は Aggregator が管理するオーダー（SubPool と Broker のオーダーを紐付ける）
 type ManagedOrder struct {
 	BrokerOrderID broker.OrderID
-	Req           pool.OrderRequest // 元の SubPool からの依頼
+	Req           pool.OrderRequest // 元の Agent からの依頼（Intent・ClosePositionID など内部概念を保持）
 }
 
-// PositionSummary は通貨ペア単位のポジション集計
-type PositionSummary struct {
-	Pair        currency.Pair
-	NetLots     map[pool.SubPoolID][]pool.Position // SubPool ごとのポジション一覧
-}
-
-// Aggregator は SubPool と Broker の間に立ち、
-// オーダーの中継・管理と Fill の配送を担う
+// Aggregator は Agent と Broker の間に立ち、
+// オーダーの変換・中継・Fill の配送を担う
 //
 // 【責務】
-//   - SubPool からの OrderRequest を Broker へ中継
-//   - SubPool ↔ BrokerOrderID の対応管理
-//   - Broker からの Fill を該当 SubPool へ配送
-//   - 通貨ペア単位のポジション集計
+//   - pool.OrderRequest を pkg/order.Order に変換して Broker へ中継
+//   - BrokerOrderID ↔ SubPoolID の対応管理
+//   - Broker からの pkg/order.Fill を pool.Fill に変換して SubPool へ配送
 //
 // 【初期スコープ外・将来拡張】
 //   - ネッティング（SubPool 間の買い売りを相殺して Broker への発注量を削減）
 type Aggregator interface {
-	// SubmitOrder は SubPool からの OrderRequest を受け取り Broker へ発注する
-	// BrokerOrderID と SubPool の対応を内部で保持する
+	// SubmitOrder は Agent からの OrderRequest を pkg/order.Order に変換して Broker へ発注する
 	SubmitOrder(ctx context.Context, req pool.OrderRequest) error
 
 	// CancelOrder は SubPool からのキャンセル依頼を Broker へ中継する
 	CancelOrder(ctx context.Context, subPoolID pool.SubPoolID, brokerOrderID broker.OrderID) error
 
-	// SyncFills は Broker から約定済み Fill を取得し、該当 SubPool へ配送する
+	// SyncFills は Broker から約定済み Fill を取得し、pool.Fill に変換して該当 SubPool へ配送する
 	// 1ティックごとに呼び出す
 	SyncFills(ctx context.Context) error
 
 	// ActiveOrders は現在 PENDING 状態のオーダー一覧を返す
 	ActiveOrders() []ManagedOrder
+}
+
+// ToOrder は pool.OrderRequest を Broker に渡す pkg/order.Order に変換する
+// mapper を使ってシステム内部のClosePositionIDをBroker側のIDに変換する
+func ToOrder(req pool.OrderRequest, mapper PositionIDMapper) pkgorder.Order {
+	o := pkgorder.Order{
+		Pair:       req.Pair,
+		Side:       req.Side,
+		Lots:       req.Lots,
+		OrderType:  req.OrderType,
+		Intent:     pkgorder.OrderIntent(req.OrderIntent),
+		StopLoss:   req.StopLoss,
+		LimitPrice: req.LimitPrice,
+	}
+	if req.OrderIntent == pool.OrderIntentClose {
+		brokerID, _ := mapper.ToBrokerID(req.ClosePositionID)
+		o.ClosePositionID = brokerID
+	}
+	return o
+}
+
+// ToPoolFill は Broker からの pkg/order.Fill を pool.Fill に変換する
+// managed は BrokerOrderID から引いた ManagedOrder（Intent・ClosePositionID を復元するため）
+func ToPoolFill(f pkgorder.Fill, managed ManagedOrder) pool.Fill {
+	return pool.Fill{
+		BrokerOrderID:   f.OrderID,
+		SubPoolID:       managed.Req.SubPoolID,
+		Pair:            f.Pair,
+		Side:            f.Side,
+		Lots:            f.Lots,
+		FilledPrice:     f.FilledPrice,
+		FilledAt:        f.FilledAt,
+		Intent:          managed.Req.OrderIntent,
+		ClosePositionID: managed.Req.ClosePositionID,
+	}
 }

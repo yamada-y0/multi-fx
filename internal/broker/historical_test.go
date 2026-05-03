@@ -7,9 +7,9 @@ import (
 
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/broker"
-	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
 	"github.com/yamada/multi-fx/pkg/market"
+	pkgorder "github.com/yamada/multi-fx/pkg/order"
 )
 
 // d は decimal.NewFromFloat の短縮ヘルパー
@@ -93,12 +93,11 @@ func TestHistoricalBroker_FetchRate_UnsupportedPair(t *testing.T) {
 func TestHistoricalBroker_Stop_Long_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeStop,
+		OrderType: pkgorder.OrderTypeStop,
 		StopLoss:  d(138.50), // tick1 Low=138.00 <= 138.50 → 約定
 	})
 	if err != nil {
@@ -122,12 +121,11 @@ func TestHistoricalBroker_Stop_Long_Filled(t *testing.T) {
 func TestHistoricalBroker_Stop_Long_NotFilled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeStop,
+		OrderType: pkgorder.OrderTypeStop,
 		StopLoss:  d(137.00), // tick1 Low=138.00 > 137.00 → 約定しない
 	})
 	if err != nil {
@@ -145,12 +143,11 @@ func TestHistoricalBroker_Stop_Long_NotFilled(t *testing.T) {
 func TestHistoricalBroker_Stop_Short_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Short,
+		Side:      pkgorder.Short,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeStop,
+		OrderType: pkgorder.OrderTypeStop,
 		StopLoss:  d(141.50), // tick1 High=142.00 >= 141.50 → 約定
 	})
 	if err != nil {
@@ -173,13 +170,11 @@ func TestHistoricalBroker_Stop_Short_Filled(t *testing.T) {
 func TestHistoricalBroker_Market_Long_FilledImmediately(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeMarket,
-		StopLoss:  d(135.00),
+		OrderType: pkgorder.OrderTypeMarket,
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -202,13 +197,11 @@ func TestHistoricalBroker_Market_Long_FilledImmediately(t *testing.T) {
 func TestHistoricalBroker_Market_Short_FilledImmediately(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Short,
+		Side:      pkgorder.Short,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeMarket,
-		StopLoss:  d(145.00),
+		OrderType: pkgorder.OrderTypeMarket,
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -228,14 +221,12 @@ func TestHistoricalBroker_Market_Short_FilledImmediately(t *testing.T) {
 func TestHistoricalBroker_Limit_Long_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Long,
+		Side:       pkgorder.Long,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(139.50), // tick1 Low=138.00 <= 139.50 → 約定
-		StopLoss:   d(135.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -255,14 +246,12 @@ func TestHistoricalBroker_Limit_Long_Filled(t *testing.T) {
 func TestHistoricalBroker_Limit_Long_NotFilled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Long,
+		Side:       pkgorder.Long,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(137.50), // tick1 Low=138.00 > 137.50 → 約定しない
-		StopLoss:   d(135.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -279,14 +268,12 @@ func TestHistoricalBroker_Limit_Long_NotFilled(t *testing.T) {
 func TestHistoricalBroker_Limit_Long_ExactPrice(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Long,
+		Side:       pkgorder.Long,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(138.00), // tick1 Low=138.00 と一致 → 約定する
-		StopLoss:   d(135.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -303,14 +290,12 @@ func TestHistoricalBroker_Limit_Long_ExactPrice(t *testing.T) {
 func TestHistoricalBroker_Limit_Short_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Short,
+		Side:       pkgorder.Short,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(141.50), // tick1 High=142.00 >= 141.50 → 約定
-		StopLoss:   d(145.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -330,14 +315,12 @@ func TestHistoricalBroker_Limit_Short_Filled(t *testing.T) {
 func TestHistoricalBroker_Limit_Short_NotFilled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Short,
+		Side:       pkgorder.Short,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(142.50), // tick1 High=142.00 < 142.50 → 約定しない
-		StopLoss:   d(145.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -354,14 +337,12 @@ func TestHistoricalBroker_Limit_Short_NotFilled(t *testing.T) {
 func TestHistoricalBroker_Limit_CancelBeforeFill(t *testing.T) {
 	b := newTestBroker(t)
 
-	id, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	id, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Long,
+		Side:       pkgorder.Long,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(139.50), // 刺さるはずだがキャンセルする
-		StopLoss:   d(135.00),
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -384,17 +365,16 @@ func TestHistoricalBroker_Limit_CancelBeforeFill(t *testing.T) {
 func TestHistoricalBroker_FetchFills_ClearsAfterRead(t *testing.T) {
 	b := newTestBroker(t)
 
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeStop,
+		OrderType: pkgorder.OrderTypeStop,
 		StopLoss:  d(138.50),
 	})
 	b.Advance()
 
-	b.FetchFills(context.Background())                 // 1回目で取得
+	b.FetchFills(context.Background())
 	fills, _ := b.FetchFills(context.Background()) // 2回目は空のはず
 	if len(fills) != 0 {
 		t.Errorf("fills = %d, want 0 on second fetch", len(fills))
@@ -406,13 +386,11 @@ func TestHistoricalBroker_FetchFills_ClearsAfterRead(t *testing.T) {
 func TestHistoricalBroker_Position_CreatedOnMarketFill(t *testing.T) {
 	b := newTestBroker(t)
 
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeMarket,
-		StopLoss:  d(135.00),
+		OrderType: pkgorder.OrderTypeMarket,
 	})
 
 	positions, err := b.FetchPositions(context.Background())
@@ -422,7 +400,7 @@ func TestHistoricalBroker_Position_CreatedOnMarketFill(t *testing.T) {
 	if len(positions) != 1 {
 		t.Fatalf("positions = %d, want 1", len(positions))
 	}
-	if positions[0].Side != pool.Long {
+	if positions[0].Side != pkgorder.Long {
 		t.Errorf("Side = %v, want Long", positions[0].Side)
 	}
 	if !positions[0].OpenPrice.Equal(d(140.50)) {
@@ -433,14 +411,12 @@ func TestHistoricalBroker_Position_CreatedOnMarketFill(t *testing.T) {
 func TestHistoricalBroker_Position_CreatedOnLimitFill(t *testing.T) {
 	b := newTestBroker(t)
 
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:  "pool-a",
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:       currency.USDJPY,
-		Side:       pool.Long,
+		Side:       pkgorder.Long,
 		Lots:       d(0.1),
-		OrderType:  pool.OrderTypeLimit,
+		OrderType:  pkgorder.OrderTypeLimit,
 		LimitPrice: d(139.50),
-		StopLoss:   d(135.00),
 	})
 
 	b.Advance()
@@ -458,13 +434,11 @@ func TestHistoricalBroker_Position_Accumulates(t *testing.T) {
 	b := newTestBroker(t)
 
 	for range 3 {
-		b.SubmitOrder(context.Background(), pool.OrderRequest{
-			SubPoolID: "pool-a",
+		b.SubmitOrder(context.Background(), pkgorder.Order{
 			Pair:      currency.USDJPY,
-			Side:      pool.Long,
+			Side:      pkgorder.Long,
 			Lots:      d(0.1),
-			OrderType: pool.OrderTypeMarket,
-			StopLoss:  d(135.00),
+			OrderType: pkgorder.OrderTypeMarket,
 		})
 	}
 
@@ -477,16 +451,14 @@ func TestHistoricalBroker_Position_Accumulates(t *testing.T) {
 func TestHistoricalBroker_Position_NotClearedOnReRead(t *testing.T) {
 	b := newTestBroker(t)
 
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID: "pool-a",
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
-		Side:      pool.Long,
+		Side:      pkgorder.Long,
 		Lots:      d(0.1),
-		OrderType: pool.OrderTypeMarket,
-		StopLoss:  d(135.00),
+		OrderType: pkgorder.OrderTypeMarket,
 	})
 
-	b.FetchPositions(context.Background()) // 1回目
+	b.FetchPositions(context.Background())
 	positions, _ := b.FetchPositions(context.Background()) // 2回目もクリアされない
 	if len(positions) != 1 {
 		t.Errorf("positions = %d, want 1 on second fetch", len(positions))
@@ -497,13 +469,11 @@ func TestHistoricalBroker_Position_IDUnique(t *testing.T) {
 	b := newTestBroker(t)
 
 	for range 2 {
-		b.SubmitOrder(context.Background(), pool.OrderRequest{
-			SubPoolID: "pool-a",
+		b.SubmitOrder(context.Background(), pkgorder.Order{
 			Pair:      currency.USDJPY,
-			Side:      pool.Long,
+			Side:      pkgorder.Long,
 			Lots:      d(0.1),
-			OrderType: pool.OrderTypeMarket,
-			StopLoss:  d(135.00),
+			OrderType: pkgorder.OrderTypeMarket,
 		})
 	}
 
@@ -522,19 +492,16 @@ func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
 	b := newTestBroker(t)
 
 	// 新規建て
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:   "pool-a",
-		Pair:        currency.USDJPY,
-		Side:        pool.Long,
-		Lots:        d(0.1),
-		OrderType:   pool.OrderTypeMarket,
-		OrderIntent: pool.OrderIntentOpen,
-		StopLoss:    d(135.00),
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Long,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeMarket,
+		Intent:    pkgorder.OrderIntentOpen,
 	})
 	if err != nil {
 		t.Fatalf("SubmitOrder (open): %v", err)
 	}
-	b.FetchFills(context.Background())
 
 	positions, _ := b.FetchPositions(context.Background())
 	if len(positions) != 1 {
@@ -543,14 +510,12 @@ func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
 	posID := positions[0].ID
 
 	// 決済
-	_, err = b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:       "pool-a",
+	_, err = b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:            currency.USDJPY,
-		Side:            pool.Short, // Long を閉じるので逆方向
+		Side:            pkgorder.Short,
 		Lots:            d(0.1),
-		OrderType:       pool.OrderTypeMarket,
-		OrderIntent:     pool.OrderIntentClose,
-		StopLoss:        d(145.00),
+		OrderType:       pkgorder.OrderTypeMarket,
+		Intent:          pkgorder.OrderIntentClose,
 		ClosePositionID: posID,
 	})
 	if err != nil {
@@ -563,57 +528,15 @@ func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
 	}
 }
 
-func TestHistoricalBroker_Close_Fill_HasCloseIntent(t *testing.T) {
-	b := newTestBroker(t)
-
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:   "pool-a",
-		Pair:        currency.USDJPY,
-		Side:        pool.Long,
-		Lots:        d(0.1),
-		OrderType:   pool.OrderTypeMarket,
-		OrderIntent: pool.OrderIntentOpen,
-		StopLoss:    d(135.00),
-	})
-	b.FetchFills(context.Background())
-
-	positions, _ := b.FetchPositions(context.Background())
-	posID := positions[0].ID
-
-	b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:       "pool-a",
-		Pair:            currency.USDJPY,
-		Side:            pool.Short,
-		Lots:            d(0.1),
-		OrderType:       pool.OrderTypeMarket,
-		OrderIntent:     pool.OrderIntentClose,
-		StopLoss:        d(145.00),
-		ClosePositionID: posID,
-	})
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if fills[0].Intent != pool.OrderIntentClose {
-		t.Errorf("Intent = %v, want Close", fills[0].Intent)
-	}
-	if fills[0].ClosePositionID != posID {
-		t.Errorf("ClosePositionID = %q, want %q", fills[0].ClosePositionID, posID)
-	}
-}
-
 func TestHistoricalBroker_Close_InvalidPositionID(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
-		SubPoolID:       "pool-a",
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:            currency.USDJPY,
-		Side:            pool.Short,
+		Side:            pkgorder.Short,
 		Lots:            d(0.1),
-		OrderType:       pool.OrderTypeMarket,
-		OrderIntent:     pool.OrderIntentClose,
-		StopLoss:        d(145.00),
+		OrderType:       pkgorder.OrderTypeMarket,
+		Intent:          pkgorder.OrderIntentClose,
 		ClosePositionID: "nonexistent-id",
 	})
 	if err == nil {

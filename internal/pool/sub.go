@@ -5,39 +5,16 @@ import (
 
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/pkg/currency"
+	pkgorder "github.com/yamada/multi-fx/pkg/order"
 )
 
 // SubPoolID はシステム全体でユニークな SubPool 識別子
 type SubPoolID string
 
-// Side はポジションの売買方向
-type Side int
+// Side, OrderType, OrderIntent は pkg/order の型を再エクスポートせず、
+// pool 固有の概念（OrderIntent など）のみここで定義する
 
-const (
-	Long  Side = 1
-	Short Side = -1
-)
-
-// Position は SubPool が保有する1ポジション
-type Position struct {
-	ID        string
-	Pair      currency.Pair
-	Side      Side
-	Lots      decimal.Decimal
-	OpenPrice decimal.Decimal
-	OpenedAt  time.Time
-}
-
-// OrderType は注文の執行種別
-type OrderType int
-
-const (
-	OrderTypeMarket OrderType = iota // 成行: SubmitOrder 時に即時約定
-	OrderTypeLimit                   // 指値: LimitPrice に達したら約定
-	OrderTypeStop                    // 逆指値: StopLoss 価格で約定
-)
-
-// OrderIntent は新規建てか決済かを表す
+// OrderIntent は新規建てか決済かを表す（Aggregator が管理する内部概念）
 type OrderIntent int
 
 const (
@@ -45,19 +22,38 @@ const (
 	OrderIntentClose                    // 決済（ClosePositionID で指定したポジションを閉じる）
 )
 
-// OrderRequest は SubPool から Order Aggregator への発注依頼
-// （order パッケージとの循環参照を避けるため pool パッケージに定義）
+// OrderRequest は Agent から Aggregator への発注依頼
+// Aggregator が pkg/order.Order に変換して Broker へ渡す
 type OrderRequest struct {
 	SubPoolID       SubPoolID
 	Pair            currency.Pair
-	Side            Side
+	Side            pkgorder.Side
 	Lots            decimal.Decimal
-	OrderType       OrderType
+	OrderType       pkgorder.OrderType
 	OrderIntent     OrderIntent
 	StopLoss        decimal.Decimal // 必須。逆指値なしの発注は打たない設計。
 	LimitPrice      decimal.Decimal // OrderTypeLimit のときのみ有効
 	ClosePositionID string          // OrderIntentClose のときのみ有効
 	RequestedAt     time.Time
+}
+
+// Fill は Aggregator から SubPool への約定通知（内部概念を含む）
+type Fill struct {
+	BrokerOrderID   string
+	SubPoolID       SubPoolID
+	Pair            currency.Pair
+	Side            pkgorder.Side
+	Lots            decimal.Decimal
+	FilledPrice     decimal.Decimal
+	FilledAt        time.Time
+	Intent          OrderIntent
+	ClosePositionID string // Intent==Close のときのみ有効
+}
+
+// Position は SubPool が保有する1ポジション（pkg/order.Position を内包）
+type Position struct {
+	pkgorder.Position
+	SubPoolID SubPoolID // どの SubPool のポジションか
 }
 
 // SubPoolSnapshot は永続化・Commander への報告に使う値オブジェクト
@@ -101,16 +97,4 @@ type SubPool interface {
 
 	// OnFill は約定通知を受け取り、ポジションと残高を更新する
 	OnFill(fill Fill)
-}
-
-// Fill は約定結果（Order Aggregator から SubPool へ通知）
-type Fill struct {
-	RequestID       string
-	Pair            currency.Pair
-	Side            Side
-	Lots            decimal.Decimal
-	FilledPrice     decimal.Decimal
-	FilledAt        time.Time
-	Intent          OrderIntent // Open（新規）か Close（決済）か
-	ClosePositionID string      // Intent==Close のときのみ有効
 }
