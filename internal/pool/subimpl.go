@@ -37,6 +37,31 @@ func NewSubPool(id SubPoolID, initialBalance decimal.Decimal, strategyName strin
 	}
 }
 
+// RestoreSubPool は永続化されたスナップショットから SubPool を復元する
+func RestoreSubPool(snap SubPoolSnapshot) SubPool {
+	positions := make(map[string]Position, len(snap.Positions))
+	for _, p := range snap.Positions {
+		positions[p.ID] = p
+	}
+	pendingOrders := make(map[string]PendingOrder, len(snap.PendingOrders))
+	for _, o := range snap.PendingOrders {
+		pendingOrders[o.BrokerOrderID] = o
+	}
+	return &subPool{
+		id:             snap.ID,
+		state:          snap.State,
+		initialBalance: snap.InitialBalance,
+		currentBalance: snap.CurrentBalance,
+		unrealizedPnL:  snap.UnrealizedPnL,
+		realizedPnL:    snap.RealizedPnL,
+		positions:      positions,
+		pendingOrders:  pendingOrders,
+		strategyName:   snap.StrategyName,
+		createdAt:      snap.CreatedAt,
+		updatedAt:      snap.UpdatedAt,
+	}
+}
+
 func (s *subPool) ID() SubPoolID { return s.id }
 
 func (s *subPool) Snapshot() SubPoolSnapshot {

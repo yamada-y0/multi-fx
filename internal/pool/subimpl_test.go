@@ -262,6 +262,42 @@ func TestSubPool_Terminate_WithOpenPositions(t *testing.T) {
 	}
 }
 
+func TestSubPool_Restore_PreservesState(t *testing.T) {
+	sp := newTestPool(100000)
+	sp.OnFill(openFill("pos-1", pkgorder.Long, 0.1, 140.00))
+	sp.Suspend()
+
+	snap := sp.Snapshot()
+	restored := pool.RestoreSubPool(snap)
+	rsnap := restored.Snapshot()
+
+	if rsnap.State != pool.StateSuspended {
+		t.Errorf("State = %v, want Suspended", rsnap.State)
+	}
+	if !rsnap.CurrentBalance.Equal(d(100000)) {
+		t.Errorf("CurrentBalance = %v, want 100000", rsnap.CurrentBalance)
+	}
+	if len(rsnap.Positions) != 1 {
+		t.Errorf("Positions = %d, want 1", len(rsnap.Positions))
+	}
+}
+
+func TestSubPool_Restore_PreservesPendingOrders(t *testing.T) {
+	sp := newTestPool(100000)
+	sp.AddPendingOrder(pool.PendingOrder{
+		BrokerOrderID: "order-1",
+		Req: pool.OrderRequest{
+			SubPoolID: "pool-a",
+			Pair:      currency.USDJPY,
+		},
+	})
+
+	restored := pool.RestoreSubPool(sp.Snapshot())
+	if len(restored.Snapshot().PendingOrders) != 1 {
+		t.Errorf("PendingOrders = %d, want 1", len(restored.Snapshot().PendingOrders))
+	}
+}
+
 func TestSubPool_FloorRule_Breached(t *testing.T) {
 	sp := newTestPool(100000)
 	sp.OnFill(openFill("pos-1", pkgorder.Long, 0.1, 140.00))

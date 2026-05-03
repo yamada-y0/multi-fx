@@ -220,6 +220,30 @@ func TestAggregator_CancelOrder_RemovesPendingOrder(t *testing.T) {
 	}
 }
 
+func TestAggregator_Restore_RebuildsOrdersFromPendingOrders(t *testing.T) {
+	b, _ := broker.NewHistoricalBrokerFromRows(currency.USDJPY, testRows)
+	sp := pool.NewSubPool("pool-a", d(100000), "test", t0)
+	subPools := map[pool.SubPoolID]pool.SubPool{"pool-a": sp}
+
+	// 指値注文を出してPendingOrdersに積む
+	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper())
+	agg.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pkgorder.Long,
+		Lots:        d(0.1),
+		OrderType:   pkgorder.OrderTypeLimit,
+		OrderIntent: pool.OrderIntentOpen,
+		LimitPrice:  d(139.50),
+	})
+
+	// SubPoolのSnapshotから復元したAggregatorがActiveOrdersを持つか確認
+	restored := order.RestoreAggregator(b, subPools, order.NewIdentityMapper())
+	if len(restored.ActiveOrders()) != 1 {
+		t.Errorf("ActiveOrders after restore = %d, want 1", len(restored.ActiveOrders()))
+	}
+}
+
 func TestAggregator_OpenAndClose(t *testing.T) {
 	agg, sp, _ := setup(t)
 

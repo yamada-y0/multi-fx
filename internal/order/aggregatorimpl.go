@@ -24,6 +24,23 @@ func NewAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, ma
 	}
 }
 
+// RestoreAggregator は各SubPoolのPendingOrdersを正としてAggregatorを復元する
+func RestoreAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper) Aggregator {
+	orders := make(map[broker.OrderID]ManagedOrder)
+	for _, sp := range subPools {
+		for _, po := range sp.Snapshot().PendingOrders {
+			id := broker.OrderID(po.BrokerOrderID)
+			orders[id] = ManagedOrder{BrokerOrderID: id, Req: po.Req}
+		}
+	}
+	return &aggregator{
+		broker:   b,
+		subPools: subPools,
+		orders:   orders,
+		mapper:   mapper,
+	}
+}
+
 func (a *aggregator) SubmitOrder(ctx context.Context, req pool.OrderRequest) error {
 	o := ToOrder(req, a.mapper)
 	id, err := a.broker.SubmitOrder(ctx, o)
