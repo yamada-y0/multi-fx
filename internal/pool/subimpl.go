@@ -16,7 +16,8 @@ type subPool struct {
 	currentBalance decimal.Decimal
 	unrealizedPnL  decimal.Decimal
 	realizedPnL    decimal.Decimal
-	positions      map[string]Position // key: PositionID
+	positions      map[string]Position     // key: PositionID
+	pendingOrders  map[string]PendingOrder // key: BrokerOrderID
 	strategyName   string
 	createdAt      time.Time
 	updatedAt      time.Time
@@ -29,6 +30,7 @@ func NewSubPool(id SubPoolID, initialBalance decimal.Decimal, strategyName strin
 		initialBalance: initialBalance,
 		currentBalance: initialBalance,
 		positions:      make(map[string]Position),
+		pendingOrders:  make(map[string]PendingOrder),
 		strategyName:   strategyName,
 		createdAt:      now,
 		updatedAt:      now,
@@ -42,6 +44,10 @@ func (s *subPool) Snapshot() SubPoolSnapshot {
 	for _, p := range s.positions {
 		positions = append(positions, p)
 	}
+	pendingOrders := make([]PendingOrder, 0, len(s.pendingOrders))
+	for _, o := range s.pendingOrders {
+		pendingOrders = append(pendingOrders, o)
+	}
 	return SubPoolSnapshot{
 		ID:             s.id,
 		State:          s.state,
@@ -50,10 +56,21 @@ func (s *subPool) Snapshot() SubPoolSnapshot {
 		UnrealizedPnL:  s.unrealizedPnL,
 		RealizedPnL:    s.realizedPnL,
 		Positions:      positions,
+		PendingOrders:  pendingOrders,
 		StrategyName:   s.strategyName,
 		CreatedAt:      s.createdAt,
 		UpdatedAt:      s.updatedAt,
 	}
+}
+
+func (s *subPool) AddPendingOrder(order PendingOrder) {
+	s.pendingOrders[order.BrokerOrderID] = order
+	s.updatedAt = time.Now()
+}
+
+func (s *subPool) RemovePendingOrder(brokerOrderID string) {
+	delete(s.pendingOrders, brokerOrderID)
+	s.updatedAt = time.Now()
 }
 
 func (s *subPool) Suspend() error {
@@ -96,6 +113,8 @@ func (s *subPool) OnRate(r currency.Rate) {
 }
 
 func (s *subPool) OnFill(fill Fill) {
+	delete(s.pendingOrders, fill.BrokerOrderID)
+
 	switch fill.Intent {
 	case OrderIntentOpen:
 		pos := Position{

@@ -162,6 +162,64 @@ func TestAggregator_CancelOrder_WrongSubPool(t *testing.T) {
 	}
 }
 
+func TestAggregator_SubmitOrder_AddsPendingOrder(t *testing.T) {
+	agg, sp, _ := setup(t)
+
+	agg.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pkgorder.Long,
+		Lots:        d(0.1),
+		OrderType:   pkgorder.OrderTypeLimit,
+		OrderIntent: pool.OrderIntentOpen,
+		LimitPrice:  d(139.50),
+	})
+
+	snap := sp.Snapshot()
+	if len(snap.PendingOrders) != 1 {
+		t.Errorf("PendingOrders = %d, want 1", len(snap.PendingOrders))
+	}
+}
+
+func TestAggregator_SyncFills_RemovesPendingOrder(t *testing.T) {
+	agg, sp, _ := setup(t)
+
+	agg.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pkgorder.Long,
+		Lots:        d(0.1),
+		OrderType:   pkgorder.OrderTypeMarket,
+		OrderIntent: pool.OrderIntentOpen,
+	})
+	agg.SyncFills(context.Background())
+
+	if len(sp.Snapshot().PendingOrders) != 0 {
+		t.Errorf("PendingOrders after fill = %d, want 0", len(sp.Snapshot().PendingOrders))
+	}
+}
+
+func TestAggregator_CancelOrder_RemovesPendingOrder(t *testing.T) {
+	agg, sp, _ := setup(t)
+
+	agg.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pkgorder.Long,
+		Lots:        d(0.1),
+		OrderType:   pkgorder.OrderTypeLimit,
+		OrderIntent: pool.OrderIntentOpen,
+		LimitPrice:  d(139.50),
+	})
+
+	orders := agg.ActiveOrders()
+	agg.CancelOrder(context.Background(), "pool-a", orders[0].BrokerOrderID)
+
+	if len(sp.Snapshot().PendingOrders) != 0 {
+		t.Errorf("PendingOrders after cancel = %d, want 0", len(sp.Snapshot().PendingOrders))
+	}
+}
+
 func TestAggregator_OpenAndClose(t *testing.T) {
 	agg, sp, _ := setup(t)
 

@@ -30,7 +30,15 @@ func (a *aggregator) SubmitOrder(ctx context.Context, req pool.OrderRequest) err
 	if err != nil {
 		return fmt.Errorf("aggregator: submit order: %w", err)
 	}
-	a.orders[id] = ManagedOrder{BrokerOrderID: id, Req: req}
+	managed := ManagedOrder{BrokerOrderID: id, Req: req}
+	a.orders[id] = managed
+
+	if sp, ok := a.subPools[req.SubPoolID]; ok {
+		sp.AddPendingOrder(pool.PendingOrder{
+			BrokerOrderID: string(id),
+			Req:           req,
+		})
+	}
 	return nil
 }
 
@@ -46,6 +54,10 @@ func (a *aggregator) CancelOrder(ctx context.Context, subPoolID pool.SubPoolID, 
 		return fmt.Errorf("aggregator: cancel order: %w", err)
 	}
 	delete(a.orders, brokerOrderID)
+
+	if sp, ok := a.subPools[subPoolID]; ok {
+		sp.RemovePendingOrder(string(brokerOrderID))
+	}
 	return nil
 }
 

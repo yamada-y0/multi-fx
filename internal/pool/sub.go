@@ -57,6 +57,12 @@ type Position struct {
 	SubPoolID SubPoolID // どの SubPool のポジションか
 }
 
+// PendingOrder は SubPool が把握している未約定注文
+type PendingOrder struct {
+	BrokerOrderID string
+	Req           OrderRequest
+}
+
 // SubPoolSnapshot は永続化・Commander への報告に使う値オブジェクト
 type SubPoolSnapshot struct {
 	ID             SubPoolID
@@ -66,6 +72,7 @@ type SubPoolSnapshot struct {
 	UnrealizedPnL  decimal.Decimal
 	RealizedPnL    decimal.Decimal
 	Positions      []Position
+	PendingOrders  []PendingOrder
 	StrategyName   string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
@@ -96,6 +103,12 @@ type SubPool interface {
 	// OnRate はレート更新通知を受け取り、含み損益を再計算する
 	OnRate(r currency.Rate)
 
-	// OnFill は約定通知を受け取り、ポジションと残高を更新する
+	// OnFill は約定通知を受け取り、ポジションと残高を更新する。未約定注文も削除する。
 	OnFill(fill Fill)
+
+	// AddPendingOrder は未約定注文を登録する（Aggregator が SubmitOrder 後に呼ぶ）
+	AddPendingOrder(order PendingOrder)
+
+	// RemovePendingOrder は未約定注文を削除する（Aggregator が CancelOrder 後に呼ぶ）
+	RemovePendingOrder(brokerOrderID string)
 }
