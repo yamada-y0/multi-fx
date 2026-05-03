@@ -6,26 +6,29 @@ import (
 
 	"github.com/yamada/multi-fx/internal/broker"
 	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/multi-fx/internal/store"
 )
 
 type aggregator struct {
-	broker    broker.Broker
-	subPools  map[pool.SubPoolID]pool.SubPool
-	orders    map[broker.OrderID]ManagedOrder
-	mapper    PositionIDMapper
+	broker   broker.Broker
+	subPools map[pool.SubPoolID]pool.SubPool
+	orders   map[broker.OrderID]ManagedOrder
+	mapper   PositionIDMapper
+	store    store.StateStore
 }
 
-func NewAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper) Aggregator {
+func NewAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper, st store.StateStore) Aggregator {
 	return &aggregator{
 		broker:   b,
 		subPools: subPools,
 		orders:   make(map[broker.OrderID]ManagedOrder),
 		mapper:   mapper,
+		store:    st,
 	}
 }
 
 // RestoreAggregator は各SubPoolのPendingOrdersを正としてAggregatorを復元する
-func RestoreAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper) Aggregator {
+func RestoreAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper, st store.StateStore) Aggregator {
 	orders := make(map[broker.OrderID]ManagedOrder)
 	for _, sp := range subPools {
 		for _, po := range sp.Snapshot().PendingOrders {
@@ -38,6 +41,7 @@ func RestoreAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool
 		subPools: subPools,
 		orders:   orders,
 		mapper:   mapper,
+		store:    st,
 	}
 }
 
@@ -98,6 +102,10 @@ func (a *aggregator) SyncFills(ctx context.Context) error {
 
 		poolFill := ToPoolFill(f, managed)
 		sp.OnFill(poolFill)
+
+		if err := a.store.SaveFill(ctx, poolFill); err != nil {
+			return fmt.Errorf("aggregator: save fill: %w", err)
+		}
 
 		if managed.Req.OrderIntent == pool.OrderIntentOpen {
 			a.mapper.Register(f.PositionID, f.PositionID)
