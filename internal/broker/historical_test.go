@@ -620,3 +620,45 @@ func TestHistoricalBroker_Close_InvalidPositionID(t *testing.T) {
 		t.Error("SubmitOrder with invalid ClosePositionID should return error")
 	}
 }
+
+// --- FetchCandles ---
+
+func TestHistoricalBroker_FetchCandles_ReturnsNewestFirst(t *testing.T) {
+	b := newTestBroker(t)
+	b.Advance() // tick1へ
+
+	candles, err := b.FetchCandles(currency.USDJPY, 2)
+	if err != nil {
+		t.Fatalf("FetchCandles: %v", err)
+	}
+	if len(candles) != 2 {
+		t.Fatalf("len = %d, want 2", len(candles))
+	}
+	// 新しい順なので candles[0] が tick1、candles[1] が tick0
+	if !candles[0].Close.Equal(d(141.00)) {
+		t.Errorf("candles[0].Close = %v, want 141.00 (tick1)", candles[0].Close)
+	}
+	if !candles[1].Close.Equal(d(140.50)) {
+		t.Errorf("candles[1].Close = %v, want 140.50 (tick0)", candles[1].Close)
+	}
+}
+
+func TestHistoricalBroker_FetchCandles_CapAtAvailable(t *testing.T) {
+	b := newTestBroker(t)
+	// tick0 の時点でN=10を要求しても1本しか返らない
+	candles, err := b.FetchCandles(currency.USDJPY, 10)
+	if err != nil {
+		t.Fatalf("FetchCandles: %v", err)
+	}
+	if len(candles) != 1 {
+		t.Errorf("len = %d, want 1", len(candles))
+	}
+}
+
+func TestHistoricalBroker_FetchCandles_UnsupportedPair(t *testing.T) {
+	b := newTestBroker(t)
+	_, err := b.FetchCandles(currency.EURUSD, 5)
+	if err == nil {
+		t.Error("FetchCandles with unsupported pair should return error")
+	}
+}

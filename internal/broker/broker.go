@@ -6,6 +6,7 @@ import (
 
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/multi-fx/pkg/market"
 )
 
 // OrderID は Broker が発行するオーダー識別子
@@ -65,4 +66,7 @@ type HistoricalBroker interface {
 
 	// CurrentTime は現在再生中の時刻を返す
 	CurrentTime() time.Time
+
+	// FetchCandles は現在ティックから遡って最大 n 本の足データを返す（新しい順）
+	FetchCandles(pair currency.Pair, n int) ([]market.Candle, error)
 }

@@ -216,6 +216,22 @@ func (b *historicalBroker) FetchPositions(_ context.Context) ([]pool.Position, e
 	return result, nil
 }
 
+func (b *historicalBroker) FetchCandles(pair currency.Pair, n int) ([]market.Candle, error) {
+	if pair != b.pair {
+		return nil, fmt.Errorf("broker: unsupported pair: %s", pair)
+	}
+	start := b.cursor - n + 1
+	if start < 0 {
+		start = 0
+	}
+	src := b.rows[start : b.cursor+1]
+	result := make([]market.Candle, len(src))
+	for i, c := range src {
+		result[len(src)-1-i] = c // 新しい順に並び替え
+	}
+	return result, nil
+}
+
 func (b *historicalBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	if pair != b.pair {
 		return currency.Rate{}, fmt.Errorf("broker: unsupported pair: %s", pair)
