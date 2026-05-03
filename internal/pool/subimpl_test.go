@@ -20,7 +20,8 @@ func newTestPool(balance float64) pool.SubPool {
 
 func openFill(posID string, side pkgorder.Side, lots, price float64) pool.Fill {
 	return pool.Fill{
-		BrokerOrderID: posID,
+		BrokerOrderID: "order-" + posID,
+		PositionID:    posID,
 		SubPoolID:     "pool-a",
 		Pair:          currency.USDJPY,
 		Side:          side,

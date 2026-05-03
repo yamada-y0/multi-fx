@@ -40,6 +40,7 @@ type OrderRequest struct {
 // Fill は Aggregator から SubPool への約定通知（内部概念を含む）
 type Fill struct {
 	BrokerOrderID   string
+	PositionID      string // 新規建て時にBrokerが払い出したPositionID
 	SubPoolID       SubPoolID
 	Pair            currency.Pair
 	Side            pkgorder.Side

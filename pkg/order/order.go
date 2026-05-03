@@ -47,6 +47,7 @@ type Order struct {
 // Fill はブローカーからの約定通知
 type Fill struct {
 	OrderID     string
+	PositionID  string // 新規建て時にBrokerが払い出すPositionID
 	Pair        currency.Pair
 	Side        Side
 	Lots        decimal.Decimal

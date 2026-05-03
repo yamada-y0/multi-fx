@@ -100,7 +100,7 @@ func (s *subPool) OnFill(fill Fill) {
 	case OrderIntentOpen:
 		pos := Position{
 			Position: pkgorder.Position{
-				ID:        fill.BrokerOrderID,
+				ID:        fill.PositionID,
 				Pair:      fill.Pair,
 				Side:      fill.Side,
 				Lots:      fill.Lots,

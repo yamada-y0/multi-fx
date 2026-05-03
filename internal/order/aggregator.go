@@ -63,6 +63,7 @@ func ToOrder(req pool.OrderRequest, mapper PositionIDMapper) pkgorder.Order {
 func ToPoolFill(f pkgorder.Fill, managed ManagedOrder) pool.Fill {
 	return pool.Fill{
 		BrokerOrderID:   f.OrderID,
+		PositionID:      f.PositionID,
 		SubPoolID:       managed.Req.SubPoolID,
 		Pair:            f.Pair,
 		Side:            f.Side,

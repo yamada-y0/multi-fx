@@ -145,8 +145,10 @@ func (b *historicalBroker) recordFill(id OrderID, o pkgorder.Order, price decima
 
 	switch o.Intent {
 	case pkgorder.OrderIntentOpen:
+		posID := uuid.New().String()
+		b.fills[len(b.fills)-1].PositionID = posID
 		pos := pkgorder.Position{
-			ID:        uuid.New().String(),
+			ID:        posID,
 			Pair:      o.Pair,
 			Side:      o.Side,
 			Lots:      o.Lots,
