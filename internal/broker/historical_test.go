@@ -9,6 +9,7 @@ import (
 	"github.com/yamada/multi-fx/internal/broker"
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/multi-fx/pkg/market"
 )
 
 // d は decimal.NewFromFloat の短縮ヘルパー
@@ -21,10 +22,10 @@ var t0 = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 //	tick0: O=140.00 H=141.00 L=139.00 C=140.50
 //	tick1: O=140.50 H=142.00 L=138.00 C=141.00
 //	tick2: O=141.00 H=143.00 L=137.00 C=142.00
-var testRows = []broker.OHLCVRow{
-	{Timestamp: t0, Open: d(140.00), High: d(141.00), Low: d(139.00), Close: d(140.50)},
-	{Timestamp: t0.Add(time.Hour), Open: d(140.50), High: d(142.00), Low: d(138.00), Close: d(141.00)},
-	{Timestamp: t0.Add(2 * time.Hour), Open: d(141.00), High: d(143.00), Low: d(137.00), Close: d(142.00)},
+var testRows = []market.Candle{
+	{Timestamp: t0, Pair: currency.USDJPY, Open: d(140.00), High: d(141.00), Low: d(139.00), Close: d(140.50)},
+	{Timestamp: t0.Add(time.Hour), Pair: currency.USDJPY, Open: d(140.50), High: d(142.00), Low: d(138.00), Close: d(141.00)},
+	{Timestamp: t0.Add(2 * time.Hour), Pair: currency.USDJPY, Open: d(141.00), High: d(143.00), Low: d(137.00), Close: d(142.00)},
 }
 
 func newTestBroker(t *testing.T) broker.HistoricalBroker {

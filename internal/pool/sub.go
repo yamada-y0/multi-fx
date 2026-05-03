@@ -85,13 +85,10 @@ func (s SubPoolSnapshot) IsFloorRuleBreached() bool {
 }
 
 // SubPool は仮想口座のインターフェース
+// 発注判断は Agent が担うため、SubPool は口座状態の管理のみを責務とする
 type SubPool interface {
 	ID() SubPoolID
 	Snapshot() SubPoolSnapshot
-
-	// RequestOrder は発注依頼を Order Aggregator へ送る
-	// State が Active でない場合はエラーを返す
-	RequestOrder(req OrderRequest) error
 
 	// Suspend は Active → Suspended へ遷移する（新規発注不可）
 	Suspend() error

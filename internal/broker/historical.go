@@ -13,17 +13,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/multi-fx/pkg/market"
 )
-
-// OHLCVRow は Dukascopy CSV の1行
-type OHLCVRow struct {
-	Timestamp time.Time
-	Open      decimal.Decimal
-	High      decimal.Decimal
-	Low       decimal.Decimal
-	Close     decimal.Decimal
-	Volume    decimal.Decimal
-}
 
 type pendingOrder struct {
 	id  OrderID
@@ -32,7 +23,7 @@ type pendingOrder struct {
 
 type historicalBroker struct {
 	pair      currency.Pair
-	rows      []OHLCVRow
+	rows      []market.Candle
 	cursor    int
 	pending   []pendingOrder
 	fills     []pool.Fill
@@ -54,7 +45,7 @@ func NewHistoricalBroker(pair currency.Pair, csvPath string) (HistoricalBroker, 
 	}
 	defer f.Close()
 
-	rows, err := parseCSV(f)
+	rows, err := parseCSV(pair, f)
 	if err != nil {
 		return nil, fmt.Errorf("broker: parse csv: %w", err)
 	}
@@ -65,15 +56,15 @@ func NewHistoricalBroker(pair currency.Pair, csvPath string) (HistoricalBroker, 
 	return newHistoricalBroker(pair, rows), nil
 }
 
-// NewHistoricalBrokerFromRows は OHLCVRow のスライスから HistoricalBroker を返す（テスト用）
-func NewHistoricalBrokerFromRows(pair currency.Pair, rows []OHLCVRow) (HistoricalBroker, error) {
+// NewHistoricalBrokerFromRows は market.Candle のスライスから HistoricalBroker を返す（テスト用）
+func NewHistoricalBrokerFromRows(pair currency.Pair, rows []market.Candle) (HistoricalBroker, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("broker: rows is empty")
 	}
 	return newHistoricalBroker(pair, rows), nil
 }
 
-func newHistoricalBroker(pair currency.Pair, rows []OHLCVRow) *historicalBroker {
+func newHistoricalBroker(pair currency.Pair, rows []market.Candle) *historicalBroker {
 	return &historicalBroker{pair: pair, rows: rows, positions: make(map[string]pool.Position)}
 }
 
@@ -110,7 +101,7 @@ func (b *historicalBroker) evaluatePending() {
 }
 
 // isFilled はオーダーがこのティックで約定するかを OrderType ごとに判定する
-func (b *historicalBroker) isFilled(req pool.OrderRequest, row OHLCVRow) bool {
+func (b *historicalBroker) isFilled(req pool.OrderRequest, row market.Candle) bool {
 	switch req.OrderType {
 	case pool.OrderTypeStop:
 		switch req.Side {
@@ -238,7 +229,7 @@ func (b *historicalBroker) FetchRate(_ context.Context, pair currency.Pair) (cur
 	}, nil
 }
 
-func parseCSV(r io.Reader) ([]OHLCVRow, error) {
+func parseCSV(pair currency.Pair, r io.Reader) ([]market.Candle, error) {
 	cr := csv.NewReader(r)
 
 	// ヘッダー行をスキップ
@@ -246,7 +237,7 @@ func parseCSV(r io.Reader) ([]OHLCVRow, error) {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 
-	var rows []OHLCVRow
+	var rows []market.Candle
 	for {
 		rec, err := cr.Read()
 		if err == io.EOF {
@@ -255,7 +246,7 @@ func parseCSV(r io.Reader) ([]OHLCVRow, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read row: %w", err)
 		}
-		row, err := parseRow(rec)
+		row, err := parseRow(pair, rec)
 		if err != nil {
 			return nil, err
 		}
@@ -264,14 +255,14 @@ func parseCSV(r io.Reader) ([]OHLCVRow, error) {
 	return rows, nil
 }
 
-func parseRow(rec []string) (OHLCVRow, error) {
+func parseRow(pair currency.Pair, rec []string) (market.Candle, error) {
 	if len(rec) < 6 {
-		return OHLCVRow{}, fmt.Errorf("unexpected columns: %d", len(rec))
+		return market.Candle{}, fmt.Errorf("unexpected columns: %d", len(rec))
 	}
 
 	tsMs, err := strconv.ParseInt(rec[0], 10, 64)
 	if err != nil {
-		return OHLCVRow{}, fmt.Errorf("parse timestamp %q: %w", rec[0], err)
+		return market.Candle{}, fmt.Errorf("parse timestamp %q: %w", rec[0], err)
 	}
 
 	parse := func(s string) (decimal.Decimal, error) {
@@ -284,27 +275,28 @@ func parseRow(rec []string) (OHLCVRow, error) {
 
 	open, err := parse(rec[1])
 	if err != nil {
-		return OHLCVRow{}, err
+		return market.Candle{}, err
 	}
 	high, err := parse(rec[2])
 	if err != nil {
-		return OHLCVRow{}, err
+		return market.Candle{}, err
 	}
 	low, err := parse(rec[3])
 	if err != nil {
-		return OHLCVRow{}, err
+		return market.Candle{}, err
 	}
 	close, err := parse(rec[4])
 	if err != nil {
-		return OHLCVRow{}, err
+		return market.Candle{}, err
 	}
 	volume, err := parse(rec[5])
 	if err != nil {
-		return OHLCVRow{}, err
+		return market.Candle{}, err
 	}
 
-	return OHLCVRow{
+	return market.Candle{
 		Timestamp: time.UnixMilli(tsMs).UTC(),
+		Pair:      pair,
 		Open:      open,
 		High:      high,
 		Low:       low,

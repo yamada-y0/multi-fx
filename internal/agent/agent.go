@@ -4,25 +4,24 @@ import (
 	"context"
 
 	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/multi-fx/pkg/market"
 )
 
-// Strategy は SubPool に紐づく取引戦略のインターフェース
-//
-// TODO: シグネチャの詳細は未確定。戦略ごとのパラメータ設計が必要。
+// Strategy は発注判断ロジックのインターフェース
+// 副作用を持たず、OrderRequest を返すだけ
 type Strategy interface {
 	// Name は戦略識別子（ログ・メトリクス用）
 	Name() string
 
-	// OnTick は1ティックごとに呼ばれ、発注判断を行う
-	// SubPool を通じて残高・ポジションを参照し、必要なら RequestOrder を呼ぶ
-	OnTick(ctx context.Context, sp pool.SubPool, rates map[currency.Pair]currency.Rate) error
+	// OnTick は1ティックごとに呼ばれ、発注依頼を返す
+	// SubPool の状態は Snapshot（値）として受け取る
+	OnTick(ctx context.Context, snap pool.SubPoolSnapshot, mkt market.MarketContext) ([]pool.OrderRequest, error)
 
-	// OnFill は自身の SubPool の約定通知を受け取る
-	OnFill(ctx context.Context, sp pool.SubPool, fill pool.Fill) error
+	// OnFill は約定通知を受け取り、内部状態を更新する
+	OnFill(ctx context.Context, fill pool.Fill) error
 
-	// OnInstruction は Commander からの指示テキストを受け取り、戦略を調整する
-	// LLM の非決定性はここで吸収し、内部の判断パラメータに変換する
+	// OnInstruction は Commander からの指示テキストを受け取り、戦略パラメータを調整する
+	// LLM の非決定性はここで吸収する
 	OnInstruction(ctx context.Context, instruction string) error
 }
 
