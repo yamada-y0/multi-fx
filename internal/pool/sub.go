@@ -28,6 +28,15 @@ type Position struct {
 	OpenedAt  time.Time
 }
 
+// OrderType は注文の執行種別
+type OrderType int
+
+const (
+	OrderTypeMarket OrderType = iota // 成行: SubmitOrder 時に即時約定
+	OrderTypeLimit                   // 指値: LimitPrice に達したら約定
+	OrderTypeStop                    // 逆指値: StopLoss 価格で約定
+)
+
 // OrderRequest は SubPool から Order Aggregator への発注依頼
 // （order パッケージとの循環参照を避けるため pool パッケージに定義）
 type OrderRequest struct {
@@ -35,7 +44,9 @@ type OrderRequest struct {
 	Pair        currency.Pair
 	Side        Side
 	Lots        decimal.Decimal
+	OrderType   OrderType
 	StopLoss    decimal.Decimal // 必須。逆指値なしの発注は打たない設計。
+	LimitPrice  decimal.Decimal // OrderTypeLimit のときのみ有効
 	RequestedAt time.Time
 }
 
