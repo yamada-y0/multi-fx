@@ -20,6 +20,10 @@
 # OS
 .DS_Store
 
+# dukascopy-node
+/download/
+/.dukascopy-cache/
+
 # Terraform (将来のインフラ管理用)
 **/.terraform/
 *.tfstate
