@@ -37,17 +37,27 @@ const (
 	OrderTypeStop                    // 逆指値: StopLoss 価格で約定
 )
 
+// OrderIntent は新規建てか決済かを表す
+type OrderIntent int
+
+const (
+	OrderIntentOpen  OrderIntent = iota // 新規建て
+	OrderIntentClose                    // 決済（ClosePositionID で指定したポジションを閉じる）
+)
+
 // OrderRequest は SubPool から Order Aggregator への発注依頼
 // （order パッケージとの循環参照を避けるため pool パッケージに定義）
 type OrderRequest struct {
-	SubPoolID   SubPoolID
-	Pair        currency.Pair
-	Side        Side
-	Lots        decimal.Decimal
-	OrderType   OrderType
-	StopLoss    decimal.Decimal // 必須。逆指値なしの発注は打たない設計。
-	LimitPrice  decimal.Decimal // OrderTypeLimit のときのみ有効
-	RequestedAt time.Time
+	SubPoolID       SubPoolID
+	Pair            currency.Pair
+	Side            Side
+	Lots            decimal.Decimal
+	OrderType       OrderType
+	OrderIntent     OrderIntent
+	StopLoss        decimal.Decimal // 必須。逆指値なしの発注は打たない設計。
+	LimitPrice      decimal.Decimal // OrderTypeLimit のときのみ有効
+	ClosePositionID string          // OrderIntentClose のときのみ有効
+	RequestedAt     time.Time
 }
 
 // SubPoolSnapshot は永続化・Commander への報告に使う値オブジェクト
@@ -98,10 +108,12 @@ type SubPool interface {
 
 // Fill は約定結果（Order Aggregator から SubPool へ通知）
 type Fill struct {
-	RequestID   string
-	Pair        currency.Pair
-	Side        Side
-	Lots        decimal.Decimal
-	FilledPrice decimal.Decimal
-	FilledAt    time.Time
+	RequestID       string
+	Pair            currency.Pair
+	Side            Side
+	Lots            decimal.Decimal
+	FilledPrice     decimal.Decimal
+	FilledAt        time.Time
+	Intent          OrderIntent // Open（新規）か Close（決済）か
+	ClosePositionID string      // Intent==Close のときのみ有効
 }

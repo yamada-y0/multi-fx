@@ -35,8 +35,8 @@ type historicalBroker struct {
 	rows      []OHLCVRow
 	cursor    int
 	pending   []pendingOrder
-	fills     []pool.Fill     // 未取得の約定済み Fill
-	positions []pool.Position // 保有中ポジション
+	fills     []pool.Fill
+	positions map[string]pool.Position // key: PositionID
 }
 
 // NewHistoricalBroker は Dukascopy 形式の CSV を読み込んで HistoricalBroker を返す
@@ -74,7 +74,7 @@ func NewHistoricalBrokerFromRows(pair currency.Pair, rows []OHLCVRow) (Historica
 }
 
 func newHistoricalBroker(pair currency.Pair, rows []OHLCVRow) *historicalBroker {
-	return &historicalBroker{pair: pair, rows: rows}
+	return &historicalBroker{pair: pair, rows: rows, positions: make(map[string]pool.Position)}
 }
 
 func (b *historicalBroker) Name() string { return "historical" }
@@ -143,27 +143,43 @@ func (b *historicalBroker) fillPrice(req pool.OrderRequest) decimal.Decimal {
 	return b.rows[b.cursor].Close
 }
 
-// recordFill は約定 Fill とポジションを記録する
+// recordFill は約定 Fill を記録し、新規/決済に応じてポジションを追加/削除する
 func (b *historicalBroker) recordFill(id OrderID, req pool.OrderRequest, price decimal.Decimal, ts time.Time) {
-	b.fills = append(b.fills, pool.Fill{
-		RequestID:   string(id),
-		Pair:        req.Pair,
-		Side:        req.Side,
-		Lots:        req.Lots,
-		FilledPrice: price,
-		FilledAt:    ts,
-	})
-	b.positions = append(b.positions, pool.Position{
-		ID:        uuid.New().String(),
-		Pair:      req.Pair,
-		Side:      req.Side,
-		Lots:      req.Lots,
-		OpenPrice: price,
-		OpenedAt:  ts,
-	})
+	fill := pool.Fill{
+		RequestID:       string(id),
+		Pair:            req.Pair,
+		Side:            req.Side,
+		Lots:            req.Lots,
+		FilledPrice:     price,
+		FilledAt:        ts,
+		Intent:          req.OrderIntent,
+		ClosePositionID: req.ClosePositionID,
+	}
+	b.fills = append(b.fills, fill)
+
+	switch req.OrderIntent {
+	case pool.OrderIntentOpen:
+		pos := pool.Position{
+			ID:        uuid.New().String(),
+			Pair:      req.Pair,
+			Side:      req.Side,
+			Lots:      req.Lots,
+			OpenPrice: price,
+			OpenedAt:  ts,
+		}
+		b.positions[pos.ID] = pos
+	case pool.OrderIntentClose:
+		delete(b.positions, req.ClosePositionID)
+	}
 }
 
 func (b *historicalBroker) SubmitOrder(_ context.Context, req pool.OrderRequest) (OrderID, error) {
+	if req.OrderIntent == pool.OrderIntentClose {
+		if err := b.validateCloseRequest(req); err != nil {
+			return "", err
+		}
+	}
+
 	id := OrderID(uuid.New().String())
 
 	// 成行は即時約定
@@ -175,6 +191,14 @@ func (b *historicalBroker) SubmitOrder(_ context.Context, req pool.OrderRequest)
 
 	b.pending = append(b.pending, pendingOrder{id: id, req: req})
 	return id, nil
+}
+
+// validateCloseRequest は決済注文の事前検証（ClosePositionID が存在するか）
+func (b *historicalBroker) validateCloseRequest(req pool.OrderRequest) error {
+	if _, ok := b.positions[req.ClosePositionID]; !ok {
+		return fmt.Errorf("broker: position not found: %s", req.ClosePositionID)
+	}
+	return nil
 }
 
 func (b *historicalBroker) FetchFills(_ context.Context) ([]pool.Fill, error) {
@@ -194,8 +218,10 @@ func (b *historicalBroker) CancelOrder(_ context.Context, id OrderID) error {
 }
 
 func (b *historicalBroker) FetchPositions(_ context.Context) ([]pool.Position, error) {
-	result := make([]pool.Position, len(b.positions))
-	copy(result, b.positions)
+	result := make([]pool.Position, 0, len(b.positions))
+	for _, p := range b.positions {
+		result = append(result, p)
+	}
 	return result, nil
 }
 

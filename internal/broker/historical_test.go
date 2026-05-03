@@ -514,3 +514,108 @@ func TestHistoricalBroker_Position_IDUnique(t *testing.T) {
 		t.Errorf("Position IDs should be unique, both = %q", positions[0].ID)
 	}
 }
+
+// --- 決済（OrderIntentClose）---
+
+func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
+	b := newTestBroker(t)
+
+	// 新規建て
+	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pool.Long,
+		Lots:        d(0.1),
+		OrderType:   pool.OrderTypeMarket,
+		OrderIntent: pool.OrderIntentOpen,
+		StopLoss:    d(135.00),
+	})
+	if err != nil {
+		t.Fatalf("SubmitOrder (open): %v", err)
+	}
+	b.FetchFills(context.Background())
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 1 {
+		t.Fatalf("positions after open = %d, want 1", len(positions))
+	}
+	posID := positions[0].ID
+
+	// 決済
+	_, err = b.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:       "pool-a",
+		Pair:            currency.USDJPY,
+		Side:            pool.Short, // Long を閉じるので逆方向
+		Lots:            d(0.1),
+		OrderType:       pool.OrderTypeMarket,
+		OrderIntent:     pool.OrderIntentClose,
+		StopLoss:        d(145.00),
+		ClosePositionID: posID,
+	})
+	if err != nil {
+		t.Fatalf("SubmitOrder (close): %v", err)
+	}
+
+	positions, _ = b.FetchPositions(context.Background())
+	if len(positions) != 0 {
+		t.Errorf("positions after close = %d, want 0", len(positions))
+	}
+}
+
+func TestHistoricalBroker_Close_Fill_HasCloseIntent(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:   "pool-a",
+		Pair:        currency.USDJPY,
+		Side:        pool.Long,
+		Lots:        d(0.1),
+		OrderType:   pool.OrderTypeMarket,
+		OrderIntent: pool.OrderIntentOpen,
+		StopLoss:    d(135.00),
+	})
+	b.FetchFills(context.Background())
+
+	positions, _ := b.FetchPositions(context.Background())
+	posID := positions[0].ID
+
+	b.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:       "pool-a",
+		Pair:            currency.USDJPY,
+		Side:            pool.Short,
+		Lots:            d(0.1),
+		OrderType:       pool.OrderTypeMarket,
+		OrderIntent:     pool.OrderIntentClose,
+		StopLoss:        d(145.00),
+		ClosePositionID: posID,
+	})
+
+	fills, _ := b.FetchFills(context.Background())
+	if len(fills) != 1 {
+		t.Fatalf("fills = %d, want 1", len(fills))
+	}
+	if fills[0].Intent != pool.OrderIntentClose {
+		t.Errorf("Intent = %v, want Close", fills[0].Intent)
+	}
+	if fills[0].ClosePositionID != posID {
+		t.Errorf("ClosePositionID = %q, want %q", fills[0].ClosePositionID, posID)
+	}
+}
+
+func TestHistoricalBroker_Close_InvalidPositionID(t *testing.T) {
+	b := newTestBroker(t)
+
+	_, err := b.SubmitOrder(context.Background(), pool.OrderRequest{
+		SubPoolID:       "pool-a",
+		Pair:            currency.USDJPY,
+		Side:            pool.Short,
+		Lots:            d(0.1),
+		OrderType:       pool.OrderTypeMarket,
+		OrderIntent:     pool.OrderIntentClose,
+		StopLoss:        d(145.00),
+		ClosePositionID: "nonexistent-id",
+	})
+	if err == nil {
+		t.Error("SubmitOrder with invalid ClosePositionID should return error")
+	}
+}
