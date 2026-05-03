@@ -9,6 +9,7 @@ import (
 	"github.com/yamada/multi-fx/internal/broker"
 	"github.com/yamada/multi-fx/internal/order"
 	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/multi-fx/internal/store"
 	"github.com/yamada/multi-fx/pkg/currency"
 	"github.com/yamada/multi-fx/pkg/market"
 	pkgorder "github.com/yamada/multi-fx/pkg/order"
@@ -28,7 +29,8 @@ func setup(t *testing.T) (order.Aggregator, pool.SubPool, broker.HistoricalBroke
 	b, _ := broker.NewHistoricalBrokerFromRows(currency.USDJPY, testRows)
 	sp := pool.NewSubPool("pool-a", d(100000), "test", t0)
 	subPools := map[pool.SubPoolID]pool.SubPool{"pool-a": sp}
-	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper())
+	st := store.NewMemoryStore(d(0))
+	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
 	return agg, sp, b
 }
 
@@ -226,7 +228,8 @@ func TestAggregator_Restore_RebuildsOrdersFromPendingOrders(t *testing.T) {
 	subPools := map[pool.SubPoolID]pool.SubPool{"pool-a": sp}
 
 	// 指値注文を出してPendingOrdersに積む
-	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper())
+	st := store.NewMemoryStore(d(0))
+	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
 	agg.SubmitOrder(context.Background(), pool.OrderRequest{
 		SubPoolID:   "pool-a",
 		Pair:        currency.USDJPY,
@@ -238,7 +241,7 @@ func TestAggregator_Restore_RebuildsOrdersFromPendingOrders(t *testing.T) {
 	})
 
 	// SubPoolのSnapshotから復元したAggregatorがActiveOrdersを持つか確認
-	restored := order.RestoreAggregator(b, subPools, order.NewIdentityMapper())
+	restored := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
 	if len(restored.ActiveOrders()) != 1 {
 		t.Errorf("ActiveOrders after restore = %d, want 1", len(restored.ActiveOrders()))
 	}
