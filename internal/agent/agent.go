@@ -17,9 +17,6 @@ type Strategy interface {
 	// SubPool の状態は Snapshot（値）として受け取る
 	OnTick(ctx context.Context, snap pool.SubPoolSnapshot, mkt market.MarketContext) ([]pool.OrderRequest, error)
 
-	// OnFill は約定通知を受け取り、内部状態を更新する
-	OnFill(ctx context.Context, fill pool.Fill) error
-
 	// OnInstruction は Commander からの指示テキストを受け取り、戦略パラメータを調整する
 	// LLM の非決定性はここで吸収する
 	OnInstruction(ctx context.Context, instruction string) error
