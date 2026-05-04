@@ -45,8 +45,7 @@ func main() {
 	subPools := map[pool.SubPoolID]pool.SubPool{"sp-1": sp}
 	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
 
-	strategy := agent.NewDummyStrategy(pair, decimal.NewFromFloat(*lots), decimal.NewFromFloat(*stopLoss))
-	a := agent.NewAgent(sp, strategy, agent.NewMemoryWakeupStore())
+	a := agent.NewDummyAgent(sp, agent.NewMemoryWakeupStore(), pair, decimal.NewFromFloat(*lots), decimal.NewFromFloat(*stopLoss))
 
 	engine := rule.NewRuleEngine()
 	engine.Register(rule.FloorRule{ThresholdRatio: 0.8})

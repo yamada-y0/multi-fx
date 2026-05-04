@@ -11,37 +11,42 @@ import (
 	pkgorder "github.com/yamada/multi-fx/pkg/order"
 )
 
-// DummyStrategy はバックテスト検証用のシンプルな戦略。
+// DummyAgent はバックテスト検証用のルールベースAgent。
 // ポジションがなければ成行ロング、あれば成行決済する。
-type DummyStrategy struct {
+type DummyAgent struct {
+	baseAgent
 	pair     currency.Pair
 	lots     decimal.Decimal
 	stopLoss decimal.Decimal
 }
 
-func NewDummyStrategy(pair currency.Pair, lots decimal.Decimal, stopLoss decimal.Decimal) *DummyStrategy {
-	return &DummyStrategy{pair: pair, lots: lots, stopLoss: stopLoss}
+func NewDummyAgent(subPool pool.SubPool, wakeupStore WakeupStore, pair currency.Pair, lots decimal.Decimal, stopLoss decimal.Decimal) Agent {
+	return &DummyAgent{
+		baseAgent: baseAgent{subPool: subPool, wakeupStore: wakeupStore},
+		pair:      pair,
+		lots:      lots,
+		stopLoss:  stopLoss,
+	}
 }
 
-func (s *DummyStrategy) Name() string { return "dummy" }
-
-func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, mkt market.MarketContext) (TickResult, error) {
+func (a *DummyAgent) Tick(ctx context.Context, mkt market.MarketContext) ([]pool.OrderRequest, error) {
+	snap := a.subPool.Snapshot()
 	now := mkt.Timestamp
 	if now.IsZero() {
 		now = time.Now()
 	}
 
 	if len(snap.Positions) == 0 && len(snap.PendingOrders) == 0 {
-		return TickResult{Orders: []pool.OrderRequest{{
+		return []pool.OrderRequest{{
 			SubPoolID:   snap.ID,
-			Pair:        s.pair,
+			Pair:        a.pair,
 			Side:        pkgorder.Long,
-			Lots:        s.lots,
+			Lots:        a.lots,
 			OrderType:   pkgorder.OrderTypeMarket,
 			OrderIntent: pool.OrderIntentOpen,
-			StopLoss:    s.stopLoss,
+			StopLoss:    a.stopLoss,
 			RequestedAt: now,
-		}}}, nil
+		}}, nil
 	}
 
 	if len(snap.Positions) > 0 && len(snap.PendingOrders) == 0 {
@@ -49,20 +54,27 @@ func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, m
 		for _, pos := range snap.Positions {
 			reqs = append(reqs, pool.OrderRequest{
 				SubPoolID:       snap.ID,
-				Pair:            s.pair,
+				Pair:            a.pair,
 				Side:            pkgorder.Short,
 				Lots:            pos.Lots,
 				OrderType:       pkgorder.OrderTypeMarket,
 				OrderIntent:     pool.OrderIntentClose,
-				StopLoss:        s.stopLoss,
+				StopLoss:        a.stopLoss,
 				ClosePositionID: pos.ID,
 				RequestedAt:     now,
 			})
 		}
-		return TickResult{Orders: reqs}, nil
+		return reqs, nil
 	}
 
-	return TickResult{}, nil
+	return nil, nil
 }
 
-func (s *DummyStrategy) OnInstruction(_ context.Context, _ string) error { return nil }
+func (a *DummyAgent) ApplyInstruction(_ context.Context, inst Instruction) error {
+	switch inst.Type {
+	case InstructionSuspend:
+		return a.subPool.Suspend()
+	default:
+		return nil
+	}
+}

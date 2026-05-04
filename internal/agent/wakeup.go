@@ -4,11 +4,10 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/pkg/currency"
 )
 
-// WakeupCondition は Strategy が「次に起こしてほしい条件」を宣言する型。
+// WakeupCondition は Agent が「次に起こしてほしい条件」を宣言する型。
 // 複数フィールドを指定した場合はいずれかを満たしたとき（OR）に起動する。
 // nil フィールドは評価されない。
 type WakeupCondition struct {
@@ -38,12 +37,4 @@ func (w WakeupCondition) IsMet(now time.Time, rates map[currency.Pair]decimal.De
 		}
 	}
 	return false
-}
-
-// TickResult は Strategy.OnTick の戻り値
-type TickResult struct {
-	Orders []pool.OrderRequest
-
-	// Wakeup が非 nil のとき、Runner は次回以降この条件を満たすまで OnTick をスキップする
-	Wakeup *WakeupCondition
 }
