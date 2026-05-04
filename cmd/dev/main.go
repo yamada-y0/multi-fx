@@ -46,6 +46,7 @@ func main() {
 	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
 
 	strategy := agent.NewDummyStrategy(pair, decimal.NewFromFloat(*lots), decimal.NewFromFloat(*stopLoss))
+	a := agent.NewAgent(sp, strategy, agent.NewMemoryWakeupStore())
 
 	engine := rule.NewRuleEngine()
 	engine.Register(rule.FloorRule{ThresholdRatio: 0.8})
@@ -53,12 +54,11 @@ func main() {
 	provider := intmarket.NewProvider(b, 20)
 
 	r := runner.New(
-		[]runner.AgentEntry{{SubPool: sp, Strategy: strategy}},
+		[]agent.Agent{a},
 		agg,
 		engine,
 		provider,
 		pair,
-		runner.NewMemoryWakeupStore(),
 		nil, // Commander なし
 	)
 
