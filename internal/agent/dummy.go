@@ -16,7 +16,7 @@ import (
 type DummyStrategy struct {
 	pair     currency.Pair
 	lots     decimal.Decimal
-	stopLoss decimal.Decimal // 初期スコープでは固定値
+	stopLoss decimal.Decimal
 }
 
 func NewDummyStrategy(pair currency.Pair, lots decimal.Decimal, stopLoss decimal.Decimal) *DummyStrategy {
@@ -25,14 +25,14 @@ func NewDummyStrategy(pair currency.Pair, lots decimal.Decimal, stopLoss decimal
 
 func (s *DummyStrategy) Name() string { return "dummy" }
 
-func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, mkt market.MarketContext) ([]pool.OrderRequest, error) {
+func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, mkt market.MarketContext) (TickResult, error) {
 	now := mkt.Timestamp
 	if now.IsZero() {
 		now = time.Now()
 	}
 
 	if len(snap.Positions) == 0 && len(snap.PendingOrders) == 0 {
-		return []pool.OrderRequest{{
+		return TickResult{Orders: []pool.OrderRequest{{
 			SubPoolID:   snap.ID,
 			Pair:        s.pair,
 			Side:        pkgorder.Long,
@@ -41,7 +41,7 @@ func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, m
 			OrderIntent: pool.OrderIntentOpen,
 			StopLoss:    s.stopLoss,
 			RequestedAt: now,
-		}}, nil
+		}}}, nil
 	}
 
 	if len(snap.Positions) > 0 && len(snap.PendingOrders) == 0 {
@@ -59,10 +59,10 @@ func (s *DummyStrategy) OnTick(ctx context.Context, snap pool.SubPoolSnapshot, m
 				RequestedAt:     now,
 			})
 		}
-		return reqs, nil
+		return TickResult{Orders: reqs}, nil
 	}
 
-	return nil, nil
+	return TickResult{}, nil
 }
 
 func (s *DummyStrategy) OnInstruction(_ context.Context, _ string) error { return nil }

@@ -58,6 +58,7 @@ func main() {
 		engine,
 		provider,
 		pair,
+		runner.NewMemoryWakeupStore(),
 		nil, // Commander なし
 	)
 
