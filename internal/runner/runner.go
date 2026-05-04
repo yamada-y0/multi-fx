@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"github.com/yamada/multi-fx/internal/agent"
-	"github.com/yamada/multi-fx/internal/commander"
 	intmarket "github.com/yamada/multi-fx/internal/market"
 	"github.com/yamada/multi-fx/internal/order"
 	"github.com/yamada/multi-fx/internal/pool"
@@ -15,40 +14,40 @@ import (
 )
 
 // Runner は毎ティックの決定論的な処理フローを実行する
-// Commander とは独立しており、Directive チャネル経由で疎結合に連携する
+// Commander とは独立しており、Instruction チャネル経由で疎結合に連携する
 type Runner struct {
 	agents     []agent.Agent
 	agg        order.Aggregator
 	engine     *rule.RuleEngine
 	provider   *intmarket.Provider
 	pair       currency.Pair
-	directives <-chan commander.Directive // nil でも動く（バックテスト時など）
+	instructions <-chan agent.Instruction // nil でも動く（バックテスト時など）
 }
 
-// New は Runner を生成する。directives は nil 可（Commander なしで動く）
+// New は Runner を生成する。instructions は nil 可（Commander なしで動く）
 func New(
 	agents []agent.Agent,
 	agg order.Aggregator,
 	engine *rule.RuleEngine,
 	provider *intmarket.Provider,
 	pair currency.Pair,
-	directives <-chan commander.Directive,
+	instructions <-chan agent.Instruction,
 ) *Runner {
 	return &Runner{
-		agents:     agents,
-		agg:        agg,
-		engine:     engine,
-		provider:   provider,
-		pair:       pair,
-		directives: directives,
+		agents:       agents,
+		agg:          agg,
+		engine:       engine,
+		provider:     provider,
+		pair:         pair,
+		instructions: instructions,
 	}
 }
 
 // Tick は1ティック分の処理を実行する。
-// Directive適用 → OnRate → RuleEngine評価 → ShouldWakeup → Tick → SyncFills
+// Instruction適用 → OnRate → RuleEngine評価 → ShouldWakeup → Tick → SyncFills
 // 戻り値が false のとき、全 SubPool が Active でなくなったことを示す（ループ終了の目安）
 func (r *Runner) Tick(ctx context.Context, rate currency.Rate) (bool, error) {
-	r.applyDirectives(ctx)
+	r.applyInstructions(ctx)
 
 	for _, a := range r.agents {
 		sp := a.SubPool()
@@ -107,35 +106,25 @@ func (r *Runner) Tick(ctx context.Context, rate currency.Rate) (bool, error) {
 	return false, nil
 }
 
-// applyDirectives は Directive チャネルから溜まっている指示を全て処理する（ノンブロッキング）
-func (r *Runner) applyDirectives(ctx context.Context) {
-	if r.directives == nil {
+// applyInstructions は Instruction チャネルから溜まっている指令を全て処理する（ノンブロッキング）
+func (r *Runner) applyInstructions(ctx context.Context) {
+	if r.instructions == nil {
 		return
 	}
 	for {
 		select {
-		case d := <-r.directives:
-			r.applyDirective(ctx, d)
+		case inst := <-r.instructions:
+			r.applyInstruction(ctx, inst)
 		default:
 			return
 		}
 	}
 }
 
-func (r *Runner) applyDirective(ctx context.Context, d commander.Directive) {
+func (r *Runner) applyInstruction(ctx context.Context, inst agent.Instruction) {
 	for _, a := range r.agents {
-		if a.ID() != d.TargetID {
-			continue
-		}
-		switch d.Action {
-		case commander.ActionSuspendSubPool:
-			if err := a.SubPool().Suspend(); err != nil {
-				log.Printf("[runner] directive suspend error: %v", err)
-			}
-		case commander.ActionSendInstruction:
-			if err := a.OnInstruction(ctx, d.Instruction); err != nil {
-				log.Printf("[runner] directive instruction error: %v", err)
-			}
+		if err := a.ApplyInstruction(ctx, inst); err != nil {
+			log.Printf("[runner] instruction error: %v", err)
 		}
 	}
 }

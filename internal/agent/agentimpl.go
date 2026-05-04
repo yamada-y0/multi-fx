@@ -74,8 +74,15 @@ func (a *agentImpl) Tick(ctx context.Context, mkt market.MarketContext) ([]pool.
 	return result.Orders, nil
 }
 
-func (a *agentImpl) OnInstruction(ctx context.Context, instruction string) error {
-	return a.strategy.OnInstruction(ctx, instruction)
+func (a *agentImpl) ApplyInstruction(ctx context.Context, inst Instruction) error {
+	switch inst.Type {
+	case InstructionSuspend:
+		return a.subPool.Suspend()
+	case InstructionSendInstruction:
+		return a.strategy.OnInstruction(ctx, inst.Text)
+	default:
+		return nil
+	}
 }
 
 func (a *agentImpl) setWakeup(ctx context.Context, cond *WakeupCondition) error {
