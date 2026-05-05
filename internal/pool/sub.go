@@ -74,6 +74,7 @@ type SubPoolSnapshot struct {
 	Positions      []Position
 	PendingOrders  []PendingOrder
 	StrategyName   string
+	SessionID      string // Claude Code のセッション継続用ID（空文字なら新規セッション）
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -111,4 +112,7 @@ type SubPool interface {
 
 	// RemovePendingOrder は未約定注文を削除する（Aggregator が CancelOrder 後に呼ぶ）
 	RemovePendingOrder(brokerOrderID string)
+
+	// SetSessionID は Claude Code のセッション継続用IDを更新する
+	SetSessionID(id string)
 }

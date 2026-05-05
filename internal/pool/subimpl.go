@@ -19,6 +19,7 @@ type subPool struct {
 	positions      map[string]Position     // key: PositionID
 	pendingOrders  map[string]PendingOrder // key: BrokerOrderID
 	strategyName   string
+	sessionID      string
 	createdAt      time.Time
 	updatedAt      time.Time
 }
@@ -57,6 +58,7 @@ func RestoreSubPool(snap SubPoolSnapshot) SubPool {
 		positions:      positions,
 		pendingOrders:  pendingOrders,
 		strategyName:   snap.StrategyName,
+		sessionID:      snap.SessionID,
 		createdAt:      snap.CreatedAt,
 		updatedAt:      snap.UpdatedAt,
 	}
@@ -83,10 +85,13 @@ func (s *subPool) Snapshot() SubPoolSnapshot {
 		Positions:      positions,
 		PendingOrders:  pendingOrders,
 		StrategyName:   s.strategyName,
+		SessionID:      s.sessionID,
 		CreatedAt:      s.createdAt,
 		UpdatedAt:      s.updatedAt,
 	}
 }
+
+func (s *subPool) SetSessionID(id string) { s.sessionID = id }
 
 func (s *subPool) AddPendingOrder(order PendingOrder) {
 	s.pendingOrders[order.BrokerOrderID] = order
