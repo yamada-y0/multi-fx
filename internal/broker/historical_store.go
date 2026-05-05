@@ -29,8 +29,12 @@ func SaveHistoricalBrokerSnapshot(path string, snap HistoricalBrokerSnapshot) er
 	if err != nil {
 		return fmt.Errorf("broker snapshot: marshal: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("broker snapshot: write %s: %w", path, err)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("broker snapshot: write tmp %s: %w", path, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("broker snapshot: rename %s: %w", path, err)
 	}
 	return nil
 }

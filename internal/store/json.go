@@ -118,8 +118,13 @@ func (s *JSONStore) writeJSON(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("json store: marshal %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("json store: write %s: %w", path, err)
+	// tempファイルに書いてからrenameすることでアトミックな書き込みを保証する
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("json store: write tmp %s: %w", path, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("json store: rename %s: %w", path, err)
 	}
 	return nil
 }
