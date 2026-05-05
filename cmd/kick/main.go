@@ -183,7 +183,12 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 		args = append(args, "--resume", prevSessionID)
 	}
 
-	cmd := exec.Command("claude", args...)
+	claudePath, err := resolveClaude()
+	if err != nil {
+		return "", fmt.Errorf("claude not found in PATH: %w", err)
+	}
+
+	cmd := exec.Command(claudePath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
@@ -318,6 +323,19 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 	}
 
 	return sb.String()
+}
+
+// resolveClaude は claude コマンドのフルパスを返す
+// exec.LookPath で見つからない場合は `sh -c 'which claude'` にフォールバックする
+func resolveClaude() (string, error) {
+	if p, err := exec.LookPath("claude"); err == nil {
+		return p, nil
+	}
+	out, err := exec.Command("sh", "-c", "which claude").Output()
+	if err != nil {
+		return "", fmt.Errorf("which claude: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // stubBroker は real モード用スタブ（RealApiBroker未実装の代替）
