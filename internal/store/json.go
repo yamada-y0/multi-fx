@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/pool"
 )
 
@@ -55,21 +54,6 @@ func (s *JSONStore) LoadSubPool(_ context.Context, id pool.SubPoolID) (pool.SubP
 	return snap, nil
 }
 
-func (s *JSONStore) ListActiveSubPools(_ context.Context) ([]pool.SubPoolSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, err := s.loadSubPools()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]pool.SubPoolSnapshot, 0)
-	for _, snap := range m {
-		if snap.State == pool.StateActive || snap.State == pool.StateSuspended {
-			result = append(result, snap)
-		}
-	}
-	return result, nil
-}
 
 func (s *JSONStore) SaveFill(_ context.Context, fill pool.Fill) error {
 	s.mu.Lock()
@@ -98,21 +82,6 @@ func (s *JSONStore) ListFills(_ context.Context, subPoolID pool.SubPoolID) ([]po
 	return result, nil
 }
 
-func (s *JSONStore) SaveMasterBalance(_ context.Context, balance decimal.Decimal) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeJSON(s.masterBalancePath(), balance)
-}
-
-func (s *JSONStore) LoadMasterBalance(_ context.Context) (decimal.Decimal, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var balance decimal.Decimal
-	if err := s.readJSON(s.masterBalancePath(), &balance); err != nil {
-		return decimal.Zero, err
-	}
-	return balance, nil
-}
 
 func (s *JSONStore) loadSubPools() (map[pool.SubPoolID]pool.SubPoolSnapshot, error) {
 	m := make(map[pool.SubPoolID]pool.SubPoolSnapshot)
