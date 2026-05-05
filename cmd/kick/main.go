@@ -73,7 +73,7 @@ func main() {
 
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(*stateDir, "wakeup.json"))
 	engine := rule.NewRuleEngine()
-	engine.Register(rule.FloorRule{ThresholdRatio: 1.0})
+	engine.Register(rule.FloorRule{ThresholdRatio: 0.75})
 
 	ticker := tick.New(agg, sp, wakeupStore, engine, st)
 	result, err := ticker.Tick(ctx, rate)
@@ -241,7 +241,7 @@ func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
 // formatSessionLog はjsonlバイト列をMarkdown文字列に変換する
 func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# セッションログ\n\n"))
+	fmt.Fprintf(&sb, "# セッションログ\n\n")
 	sb.WriteString(fmt.Sprintf("- **セッションID**: %s\n", sessionID))
 	sb.WriteString(fmt.Sprintf("- **ティック時刻**: %s\n\n", tickTime.UTC().Format(time.RFC3339)))
 	sb.WriteString("---\n\n")
@@ -284,15 +284,16 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 				if !ok {
 					continue
 				}
-				if m["type"] == "text" {
+				switch m["type"] {
+				case "text":
 					if t, ok := m["text"].(string); ok {
 						text += t
 					}
-				} else if m["type"] == "tool_use" {
+				case "tool_use":
 					name, _ := m["name"].(string)
 					input, _ := json.Marshal(m["input"])
 					text += fmt.Sprintf("\n```\n[Tool: %s]\n%s\n```\n", name, string(input))
-				} else if m["type"] == "tool_result" {
+				case "tool_result":
 					content, _ := m["content"].(string)
 					if content == "" {
 						if arr, ok := m["content"].([]any); ok {
@@ -328,7 +329,7 @@ func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.Or
 	return broker.OrderID("stub-" + string(o.Pair)), nil
 }
 func (b *stubBroker) FetchFills(_ context.Context) ([]pkgorder.Fill, error) { return nil, nil }
-func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error  { return nil }
+func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error { return nil }
 func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, error) {
 	return nil, nil
 }
