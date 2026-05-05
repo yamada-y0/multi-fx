@@ -29,41 +29,56 @@ func main() {
 	stateDir := flag.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := flag.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := flag.String("pair", "USDJPY", "通貨ペア")
+	loop := flag.Bool("loop", false, "データ終端かフロアルール発動まで連続実行")
 	flag.Parse()
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> [--data <csv> --pair <pair>]")
+		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> [--data <csv> --pair <pair>] [--loop]")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
-	id := pool.SubPoolID(filepath.Base(*stateDir))
+	for {
+		done, err := runOnce(*stateDir, *csvPath, *pair)
+		if err != nil {
+			log.Fatalf("kick: %v", err)
+		}
+		if done || !*loop {
+			break
+		}
+	}
+}
 
-	st, err := store.NewJSONStore(*stateDir)
+// runOnce は1ティック分の処理を実行する
+// done=true のとき呼び出し元はループを終了すべき
+func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
+	ctx := context.Background()
+	id := pool.SubPoolID(filepath.Base(stateDir))
+
+	st, err := store.NewJSONStore(stateDir)
 	if err != nil {
-		log.Fatalf("store: %v", err)
+		return false, fmt.Errorf("store: %v", err)
 	}
 
 	snap, err := st.LoadSubPool(ctx, id)
 	if err != nil {
-		log.Fatalf("subpool not found: %v", err)
+		return false, fmt.Errorf("subpool not found: %v", err)
 	}
 
 	// Broker構築・復元
-	b, done, err := setupBroker(*stateDir, *csvPath, *pair)
+	b, dataDone, err := setupBroker(stateDir, csvPath, pairStr)
 	if err != nil {
-		log.Fatalf("setup broker: %v", err)
+		return false, fmt.Errorf("setup broker: %v", err)
 	}
-	if done {
+	if dataDone {
 		log.Printf("historical データ終端 → 終了")
-		os.Exit(0)
+		return true, nil
 	}
 
 	// レート取得
-	rate, err := b.FetchRate(ctx, currency.Pair(*pair))
+	rate, err := b.FetchRate(ctx, currency.Pair(pairStr))
 	if err != nil {
-		log.Fatalf("fetch rate: %v", err)
+		return false, fmt.Errorf("fetch rate: %v", err)
 	}
 
 	// SubPool・Aggregator復元
@@ -71,56 +86,58 @@ func main() {
 	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
 	agg := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
 
-	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(*stateDir, "wakeup.json"))
+	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(stateDir, "wakeup.json"))
 	engine := rule.NewRuleEngine()
 	engine.Register(rule.FloorRule{ThresholdRatio: 0.75})
 
 	ticker := tick.New(agg, sp, wakeupStore, engine, st)
 	result, err := ticker.Tick(ctx, rate)
 	if err != nil {
-		log.Fatalf("tick: %v", err)
+		return false, fmt.Errorf("tick: %v", err)
 	}
 
 	// Brokerスナップショットを保存（Advance後の状態）
 	if hb, ok := b.(broker.HistoricalBroker); ok {
-		snapPath := filepath.Join(*stateDir, "broker_snapshot.json")
+		snapPath := filepath.Join(stateDir, "broker_snapshot.json")
 		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
-			log.Fatalf("save broker snapshot: %v", err)
+			return false, fmt.Errorf("save broker snapshot: %v", err)
 		}
 	}
 
 	if result.Done {
 		log.Printf("フロアルール発動 → 終了")
-		os.Exit(0)
+		return true, nil
 	}
 
 	if !result.ShouldWakeup {
-		log.Printf("WakeupCondition未達 → 終了")
-		os.Exit(0)
+		log.Printf("[%s] WakeupCondition未達 → スキップ", rate.Timestamp.Format("2006-01-02T15:04Z"))
+		return false, nil
 	}
 
-	log.Printf("Claude起動 (fills=%d)", result.FillCount)
+	log.Printf("[%s] Claude起動 (fills=%d)", rate.Timestamp.Format("2006-01-02T15:04Z"), result.FillCount)
 
-	sessionID, err := runClaude(*stateDir, snap.SessionID)
+	sessionID, err := runClaude(stateDir, snap.SessionID)
 	if err != nil {
-		log.Fatalf("claude: %v", err)
+		return false, fmt.Errorf("claude: %v", err)
 	}
 
 	// session_id をSubPoolに保存
 	if sessionID != "" && sessionID != snap.SessionID {
 		sp.SetSessionID(sessionID)
 		if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
-			log.Fatalf("save subpool: %v", err)
+			return false, fmt.Errorf("save subpool: %v", err)
 		}
 		log.Printf("session_id 更新: %s", sessionID)
 	}
 
 	// 会話ログをMarkdownとしてstate-dir/logs/配下に保存
 	if sessionID != "" {
-		if err := saveSessionLog(*stateDir, sessionID, rate.Timestamp); err != nil {
+		if err := saveSessionLog(stateDir, sessionID, rate.Timestamp); err != nil {
 			log.Printf("warn: save session log: %v", err)
 		}
 	}
+
+	return false, nil
 }
 
 // setupBroker はモードに応じてBrokerを構築・復元する
