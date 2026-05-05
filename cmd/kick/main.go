@@ -146,9 +146,29 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 }
 
 // runClaude は Claude Code を起動してセッションIDを返す
-// state-dir を --add-dir で渡すことで AGENT.md を参照可能にする
+// state-dir を --add-dir で渡すことで CLAUDE.md を参照可能にする
+// --system-prompt でFXエージェントとしての役割を確立し、プロジェクトのCLAUDE.mdより優先させる
 func runClaude(stateDir, prevSessionID string) (string, error) {
-	args := []string{"-p", "--output-format", "json", "--add-dir", stateDir}
+	systemPrompt := "あなたはFX取引エージェントです。" +
+		stateDir + "/CLAUDE.md の行動手順・戦略方針・コマンドリファレンスに従って行動してください。"
+	prompt := "CLAUDE.mdの行動手順に従って行動してください。"
+	// multi-fxコマンドのみBash実行を自動許可する
+	multiFXBin, _ := os.Executable()
+	// kick自身ではなくmulti-fxバイナリのパスを渡す必要があるため、
+	// 同じディレクトリのmulti-fxを探す、なければPATHから解決
+	multiFXPath, err := exec.LookPath("multi-fx")
+	if err != nil {
+		multiFXPath = filepath.Join(filepath.Dir(multiFXBin), "multi-fx")
+	}
+	allowedTool := fmt.Sprintf("Bash(%s *)", multiFXPath)
+
+	args := []string{
+		"-p", prompt,
+		"--output-format", "json",
+		"--add-dir", stateDir,
+		"--system-prompt", systemPrompt,
+		"--allowedTools", allowedTool,
+	}
 	if prevSessionID != "" {
 		args = append(args, "--resume", prevSessionID)
 	}
@@ -156,6 +176,7 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	cmd := exec.Command("claude", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
 
 	out, err := cmd.Output()
 	if err != nil {
