@@ -133,6 +133,7 @@ func writeClaudeMD(path string) error {
 5. 次の起動条件（wakeup条件）を設定して終了する（set-wakeup）
 
 必ず最後にset-wakeupを呼ぶこと。設定しないと次回起動されません。
+wakeup条件は状況に応じて自分で判断すること（時刻・価格トリガー・約定トリガーを組み合わせ可能）。
 
 ## コマンドリファレンス
 
