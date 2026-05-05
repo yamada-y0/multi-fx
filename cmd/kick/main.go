@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/agent"
@@ -111,6 +114,13 @@ func main() {
 		}
 		log.Printf("session_id 更新: %s", sessionID)
 	}
+
+	// 会話ログをMarkdownとしてstate-dir/logs/配下に保存
+	if sessionID != "" {
+		if err := saveSessionLog(*stateDir, sessionID, rate.Timestamp); err != nil {
+			log.Printf("warn: save session log: %v", err)
+		}
+	}
 }
 
 // setupBroker はモードに応じてBrokerを構築・復元する
@@ -190,6 +200,123 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 		return "", fmt.Errorf("parse claude output: %w", err)
 	}
 	return result.SessionID, nil
+}
+
+// saveSessionLog はClaudeのjsonlセッションログをMarkdownに変換してstate-dir/logs/に保存する
+func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+
+	// Claude のセッションログはカレントディレクトリに紐づく
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getwd: %w", err)
+	}
+	projectKey := strings.ReplaceAll(cwd, "/", "-")
+	jsonlPath := filepath.Join(home, ".claude", "projects", projectKey, sessionID+".jsonl")
+
+	data, err := os.ReadFile(jsonlPath)
+	if os.IsNotExist(err) {
+		return nil // ログがない場合はスキップ
+	}
+	if err != nil {
+		return fmt.Errorf("read jsonl: %w", err)
+	}
+
+	// jsonlをMarkdownに変換
+	md := formatSessionLog(sessionID, tickTime, data)
+
+	logsDir := filepath.Join(stateDir, "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return fmt.Errorf("mkdir logs: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s_%s.md", tickTime.UTC().Format("2006-01-02T15-04-05Z"), sessionID[:8])
+	outPath := filepath.Join(logsDir, filename)
+	return os.WriteFile(outPath, []byte(md), 0644)
+}
+
+// formatSessionLog はjsonlバイト列をMarkdown文字列に変換する
+func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# セッションログ\n\n"))
+	sb.WriteString(fmt.Sprintf("- **セッションID**: %s\n", sessionID))
+	sb.WriteString(fmt.Sprintf("- **ティック時刻**: %s\n\n", tickTime.UTC().Format(time.RFC3339)))
+	sb.WriteString("---\n\n")
+
+	type message struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"message"`
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var msg message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+		if msg.Type != "user" && msg.Type != "assistant" {
+			continue
+		}
+
+		role := "**User**"
+		if msg.Type == "assistant" {
+			role = "**Assistant**"
+		}
+
+		// contentはstring or []contentBlock
+		var text string
+		switch v := msg.Message.Content.(type) {
+		case string:
+			text = v
+		case []any:
+			for _, block := range v {
+				m, ok := block.(map[string]any)
+				if !ok {
+					continue
+				}
+				if m["type"] == "text" {
+					if t, ok := m["text"].(string); ok {
+						text += t
+					}
+				} else if m["type"] == "tool_use" {
+					name, _ := m["name"].(string)
+					input, _ := json.Marshal(m["input"])
+					text += fmt.Sprintf("\n```\n[Tool: %s]\n%s\n```\n", name, string(input))
+				} else if m["type"] == "tool_result" {
+					content, _ := m["content"].(string)
+					if content == "" {
+						if arr, ok := m["content"].([]any); ok {
+							for _, c := range arr {
+								if cm, ok := c.(map[string]any); ok {
+									if cm["type"] == "text" {
+										content += cm["text"].(string)
+									}
+								}
+							}
+						}
+					}
+					text += fmt.Sprintf("\n```\n[Tool Result]\n%s\n```\n", content)
+				}
+			}
+		}
+
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", role, strings.TrimSpace(text)))
+	}
+
+	return sb.String()
 }
 
 // stubBroker は real モード用スタブ（RealApiBroker未実装の代替）
