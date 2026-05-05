@@ -28,3 +28,6 @@
 **/.terraform/
 *.tfstate
 *.tfstate.backup
+
+# エージェントの実行データ（ローカル状態・会話ログ）
+agents/
