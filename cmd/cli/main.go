@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/agent"
 	"github.com/yamada/multi-fx/internal/broker"
@@ -46,45 +47,18 @@ func main() {
 	}
 }
 
-func commonFlags(args []string) (stateDir string, subPoolID string, fs *flag.FlagSet) {
-	fs = flag.NewFlagSet("", flag.ExitOnError)
-	fs.StringVar(&stateDir, "state-dir", "", "JSONStoreのディレクトリパス（必須）")
-	fs.StringVar(&subPoolID, "subpool", "", "対象SubPoolID（必須）")
-	fs.Parse(args)
-	return
+// subPoolIDFromDir はstate-dirのベース名をSubPoolIDとして返す
+func subPoolIDFromDir(stateDir string) pool.SubPoolID {
+	return pool.SubPoolID(filepath.Base(stateDir))
 }
 
 func runSnapshot(args []string) {
-	stateDir, subPoolID, _ := commonFlags(args)
-	if stateDir == "" || subPoolID == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx snapshot --state-dir <dir> --subpool <id>")
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-	st, err := store.NewJSONStore(stateDir)
-	if err != nil {
-		log.Fatalf("store: %v", err)
-	}
-
-	snap, err := st.LoadSubPool(ctx, pool.SubPoolID(subPoolID))
-	if err != nil {
-		log.Fatalf("load subpool: %v", err)
-	}
-
-	printJSON(snap)
-}
-
-func runInitSubPool(args []string) {
-	fs := flag.NewFlagSet("init-subpool", flag.ExitOnError)
-	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
-	subPoolID := fs.String("subpool", "", "SubPoolID（必須）")
-	balance := fs.Float64("balance", 0, "初期残高（必須）")
-	strategyName := fs.String("strategy", "", "戦略名")
+	fs := flag.NewFlagSet("snapshot", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	fs.Parse(args)
 
-	if *stateDir == "" || *subPoolID == "" || *balance == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --state-dir <dir> --subpool <id> --balance <amount>")
+	if *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx snapshot --state-dir <dir>")
 		os.Exit(1)
 	}
 
@@ -94,25 +68,55 @@ func runInitSubPool(args []string) {
 		log.Fatalf("store: %v", err)
 	}
 
-	sp := pool.NewSubPool(pool.SubPoolID(*subPoolID), decimal.NewFromFloat(*balance), *strategyName, time.Now())
+	snap, err := st.LoadSubPool(ctx, subPoolIDFromDir(*stateDir))
+	if err != nil {
+		log.Fatalf("load subpool: %v", err)
+	}
+
+	printJSON(snap)
+}
+
+func runInitSubPool(args []string) {
+	fs := flag.NewFlagSet("init-subpool", flag.ExitOnError)
+	baseDir := fs.String("base-dir", "", "エージェントを配置するベースディレクトリ（必須）")
+	balance := fs.Float64("balance", 0, "初期残高（必須）")
+	strategyName := fs.String("strategy", "", "戦略名")
+	fs.Parse(args)
+
+	if *baseDir == "" || *balance == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --base-dir <dir> --balance <amount> [--strategy <name>]")
+		os.Exit(1)
+	}
+
+	id := uuid.New().String()
+	stateDir := filepath.Join(*baseDir, id)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		log.Fatalf("mkdir: %v", err)
+	}
+
+	ctx := context.Background()
+	st, err := store.NewJSONStore(stateDir)
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+
+	sp := pool.NewSubPool(pool.SubPoolID(id), decimal.NewFromFloat(*balance), *strategyName, time.Now())
 	if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
 		log.Fatalf("save subpool: %v", err)
 	}
 
-	// AGENT.md が未作成であればテンプレートを生成する
-	agentMDPath := filepath.Join(*stateDir, "AGENT.md")
-	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
-		if err := writeAgentMD(agentMDPath, *stateDir, *subPoolID); err != nil {
-			log.Fatalf("write AGENT.md: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "AGENT.md を生成しました: %s\n戦略方針を記入してください。\n", agentMDPath)
+	// CLAUDE.md を生成する
+	claudeMDPath := filepath.Join(stateDir, "CLAUDE.md")
+	if err := writeClaudeMD(claudeMDPath); err != nil {
+		log.Fatalf("write CLAUDE.md: %v", err)
 	}
 
+	fmt.Fprintf(os.Stderr, "エージェントを作成しました: %s\n%s の戦略方針を記入してください。\n", stateDir, claudeMDPath)
 	printJSON(sp.Snapshot())
 }
 
-func writeAgentMD(path, stateDir, subPoolID string) error {
-	content := `# FX取引エージェント設定
+func writeClaudeMD(path string) error {
+	content := `# FX取引エージェント
 
 ## 戦略方針
 
@@ -122,34 +126,28 @@ func writeAgentMD(path, stateDir, subPoolID string) error {
 
 起動するたびに以下の順序で行動してください。
 
-1. 現在の口座状態を確認する
-2. 直近の市場データを確認する
+1. 現在の口座状態を確認する（snapshot）
+2. 直近の市場データを確認する（market）
 3. 保有ポジション・未約定注文の状況と市場データを踏まえて判断する
 4. 発注・決済・何もしない、のいずれかを実行する
-5. 次の起動条件（wakeup条件）を設定して終了する
+5. 次の起動条件（wakeup条件）を設定して終了する（set-wakeup）
 
-必ず最後にset-wakeupを呼んで終了すること。wakeup条件を設定しないと次回起動されません。
+必ず最後にset-wakeupを呼ぶこと。設定しないと次回起動されません。
 
-## 利用可能なコマンド
+## コマンドリファレンス
 
-### 口座状態の確認
+### snapshot — 口座状態の確認
 
-` + "```" + `bash
-multi-fx snapshot --state-dir <state-dir> --subpool <subpool-id>
-` + "```" + `
+` + "```bash\n" + `multi-fx snapshot --state-dir <state-dir>
+` + "```\n" + `
+### market — 市場データの取得（新しい順）
 
-### 市場データの取得（直近N本のローソク足、新しい順）
+` + "```bash\n" + `multi-fx market --state-dir <state-dir> --data <csv-path> --pair USDJPY --n 20
+` + "```\n" + `
+### submit-order — 発注（新規）
 
-` + "```" + `bash
-multi-fx market --state-dir <state-dir> --data <csv-path> --pair USDJPY --n 20
-` + "```" + `
-
-### 発注（新規）
-
-` + "```" + `bash
-multi-fx submit-order \
+` + "```bash\n" + `multi-fx submit-order \
   --state-dir <state-dir> \
-  --subpool <subpool-id> \
   --pair USDJPY \
   --data <csv-path> \
   --side <long|short> \
@@ -157,42 +155,35 @@ multi-fx submit-order \
   --stop-loss <ストップロス価格> \
   --order-type <market|limit> \
   --limit-price <指値価格（limitのみ）>
-` + "```" + `
+` + "```\n" + `
+### submit-order — 決済
 
-### 決済
-
-` + "```" + `bash
-multi-fx submit-order \
+` + "```bash\n" + `multi-fx submit-order \
   --state-dir <state-dir> \
-  --subpool <subpool-id> \
   --pair USDJPY \
   --data <csv-path> \
   --side <long|short> \
   --lots <ロット数> \
   --stop-loss <ストップロス価格> \
   --close-position-id <PositionID>
-` + "```" + `
+` + "```\n" + `
+### set-wakeup — 次回起動条件の設定（必須・OR条件）
 
-### 次回起動条件の設定（必須）
-
-` + "```" + `bash
-# 指定時刻以降に起動
-multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --after <RFC3339形式>
+` + "```bash\n" + `# 指定時刻以降に起動
+multi-fx set-wakeup --state-dir <state-dir> --after <RFC3339形式>
 
 # レートが価格以上になったら起動
-multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --price-gte USDJPY:<価格>
+multi-fx set-wakeup --state-dir <state-dir> --price-gte USDJPY:<価格>
 
 # レートが価格以下になったら起動
-multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --price-lte USDJPY:<価格>
+multi-fx set-wakeup --state-dir <state-dir> --price-lte USDJPY:<価格>
 
 # 未約定注文が約定したら起動
-multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --any-fill
-` + "```" + `
-
+multi-fx set-wakeup --state-dir <state-dir> --any-fill
+` + "```\n" + `
 ## 注意事項
 
 - StopLossは必ず指定すること（リスク管理上必須）
-- 発注しない場合でも必ずset-wakeupで次回起動条件を設定すること
 - PositionIDはsnapshotのPositions[].IDから取得すること
 - ローソク足は新しい順（インデックス0が最新）で返される
 `
@@ -201,7 +192,7 @@ multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --any-fill
 
 func runMarket(args []string) {
 	fs := flag.NewFlagSet("market", flag.ExitOnError)
-	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := fs.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	n := fs.Int("n", 20, "取得するローソク足の本数")
@@ -220,43 +211,35 @@ func runMarket(args []string) {
 	printJSON(candles)
 }
 
-// fetchCandles はモードに応じてローソク足データを取得する
 func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, error) {
 	pair := currency.Pair(pairStr)
-
 	if csvPath == "" {
 		return []pkgmarket.Candle{}, nil
 	}
-
 	b, err := restoreHistoricalBroker(stateDir, csvPath, pair)
 	if err != nil {
 		return nil, err
 	}
-
 	return b.FetchCandles(pair, n)
 }
 
-// restoreHistoricalBroker は broker_snapshot.json から HistoricalBroker を復元する
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
 	b, err := broker.NewHistoricalBroker(pair, csvPath)
 	if err != nil {
 		return nil, fmt.Errorf("historical broker: %w", err)
 	}
-
 	snapPath := filepath.Join(stateDir, "broker_snapshot.json")
 	snap, err := broker.LoadHistoricalBrokerSnapshot(snapPath)
 	if err != nil {
 		return nil, fmt.Errorf("load broker snapshot: %w", err)
 	}
 	b.Restore(snap)
-
 	return b, nil
 }
 
 func runSubmitOrder(args []string) {
 	fs := flag.NewFlagSet("submit-order", flag.ExitOnError)
-	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
-	subPoolID := fs.String("subpool", "", "対象SubPoolID（必須）")
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := fs.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	side := fs.String("side", "", "long or short（必須）")
@@ -267,25 +250,26 @@ func runSubmitOrder(args []string) {
 	closePositionID := fs.String("close-position-id", "", "決済対象PositionID（決済時のみ）")
 	fs.Parse(args)
 
-	if *stateDir == "" || *subPoolID == "" || *side == "" || *lots == 0 || *stopLoss == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --subpool <id> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
+	if *stateDir == "" || *side == "" || *lots == 0 || *stopLoss == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
 		os.Exit(1)
 	}
 
 	ctx := context.Background()
+	id := subPoolIDFromDir(*stateDir)
+
 	st, err := store.NewJSONStore(*stateDir)
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
 
-	snap, err := st.LoadSubPool(ctx, pool.SubPoolID(*subPoolID))
+	snap, err := st.LoadSubPool(ctx, id)
 	if err != nil {
 		log.Fatalf("load subpool: %v", err)
 	}
 	sp := pool.RestoreSubPool(snap)
 	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
 
-	// Broker構築: historicalモードなら復元、なければstub
 	var b broker.Broker
 	var hb broker.HistoricalBroker
 	if *csvPath != "" {
@@ -324,7 +308,7 @@ func runSubmitOrder(args []string) {
 	}
 
 	req := pool.OrderRequest{
-		SubPoolID:       pool.SubPoolID(*subPoolID),
+		SubPoolID:       id,
 		Pair:            currency.Pair(*pair),
 		Side:            orderSide,
 		Lots:            decimal.NewFromFloat(*lots),
@@ -347,7 +331,6 @@ func runSubmitOrder(args []string) {
 		log.Fatalf("save subpool: %v", err)
 	}
 
-	// historicalモードではBrokerスナップショットを保存（成行約定後のfillsをクリア済みの状態）
 	if hb != nil {
 		snapPath := filepath.Join(*stateDir, "broker_snapshot.json")
 		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
@@ -360,16 +343,15 @@ func runSubmitOrder(args []string) {
 
 func runSetWakeup(args []string) {
 	fs := flag.NewFlagSet("set-wakeup", flag.ExitOnError)
-	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
-	subPoolID := fs.String("subpool", "", "対象SubPoolID（必須）")
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	after := fs.String("after", "", "この時刻以降に起動（RFC3339形式）")
 	priceGTE := fs.String("price-gte", "", "レートがこの価格以上になったら起動（例: USDJPY:150.0）")
 	priceLTE := fs.String("price-lte", "", "レートがこの価格以下になったら起動（例: USDJPY:148.0）")
 	anyFill := fs.Bool("any-fill", false, "未約定注文が約定したら起動")
 	fs.Parse(args)
 
-	if *stateDir == "" || *subPoolID == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx set-wakeup --state-dir <dir> --subpool <id> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>] [--any-fill]")
+	if *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx set-wakeup --state-dir <dir> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>] [--any-fill]")
 		os.Exit(1)
 	}
 
@@ -405,7 +387,7 @@ func runSetWakeup(args []string) {
 
 	ctx := context.Background()
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(*stateDir, "wakeup.json"))
-	if err := wakeupStore.Save(ctx, pool.SubPoolID(*subPoolID), cond); err != nil {
+	if err := wakeupStore.Save(ctx, subPoolIDFromDir(*stateDir), cond); err != nil {
 		log.Fatalf("save wakeup: %v", err)
 	}
 
@@ -432,7 +414,6 @@ func printJSON(v any) {
 	}
 }
 
-// stubBroker は real モード用スタブ（RealApiBroker未実装の代替）
 type stubBroker struct{}
 
 func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.OrderID, error) {

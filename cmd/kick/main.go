@@ -23,20 +23,19 @@ import (
 )
 
 func main() {
-	stateDir := flag.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
-	subPoolID := flag.String("subpool", "", "対象SubPoolID（必須）")
+	stateDir := flag.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := flag.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := flag.String("pair", "USDJPY", "通貨ペア")
 	flag.Parse()
 
-	if *stateDir == "" || *subPoolID == "" {
-		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> --subpool <id> [--data <csv> --pair <pair>]")
+	if *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> [--data <csv> --pair <pair>]")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
 	ctx := context.Background()
-	id := pool.SubPoolID(*subPoolID)
+	id := pool.SubPoolID(filepath.Base(*stateDir))
 
 	st, err := store.NewJSONStore(*stateDir)
 	if err != nil {
