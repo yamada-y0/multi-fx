@@ -18,13 +18,14 @@ import (
 	"github.com/yamada/multi-fx/internal/pool"
 	"github.com/yamada/multi-fx/internal/store"
 	"github.com/yamada/multi-fx/pkg/currency"
+	pkgmarket "github.com/yamada/multi-fx/pkg/market"
 	pkgorder "github.com/yamada/multi-fx/pkg/order"
 )
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: multi-fx <command> [options]")
-		fmt.Fprintln(os.Stderr, "Commands: snapshot, submit-order, set-wakeup")
+		fmt.Fprintln(os.Stderr, "Commands: snapshot, submit-order, set-wakeup, market, init-subpool")
 		os.Exit(1)
 	}
 
@@ -35,6 +36,10 @@ func main() {
 		runSubmitOrder(os.Args[2:])
 	case "set-wakeup":
 		runSetWakeup(os.Args[2:])
+	case "market":
+		runMarket(os.Args[2:])
+	case "init-subpool":
+		runInitSubPool(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
@@ -70,6 +75,85 @@ func runSnapshot(args []string) {
 	printJSON(snap)
 }
 
+func runInitSubPool(args []string) {
+	fs := flag.NewFlagSet("init-subpool", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
+	subPoolID := fs.String("subpool", "", "SubPoolID（必須）")
+	balance := fs.Float64("balance", 0, "初期残高（必須）")
+	strategyName := fs.String("strategy", "", "戦略名")
+	fs.Parse(args)
+
+	if *stateDir == "" || *subPoolID == "" || *balance == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --state-dir <dir> --subpool <id> --balance <amount>")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	st, err := store.NewJSONStore(*stateDir)
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+
+	sp := pool.NewSubPool(pool.SubPoolID(*subPoolID), decimal.NewFromFloat(*balance), *strategyName, time.Now())
+	if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
+		log.Fatalf("save subpool: %v", err)
+	}
+
+	printJSON(sp.Snapshot())
+}
+
+func runMarket(args []string) {
+	fs := flag.NewFlagSet("market", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
+	csvPath := fs.String("data", "", "historical モード: Dukascopy CSVファイルパス")
+	pair := fs.String("pair", "USDJPY", "通貨ペア")
+	n := fs.Int("n", 20, "取得するローソク足の本数")
+	fs.Parse(args)
+
+	if *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx market --state-dir <dir> [--data <csv>] [--pair <pair>] [--n <count>]")
+		os.Exit(1)
+	}
+
+	candles, err := fetchCandles(*stateDir, *csvPath, *pair, *n)
+	if err != nil {
+		log.Fatalf("fetch candles: %v", err)
+	}
+
+	printJSON(candles)
+}
+
+// fetchCandles はモードに応じてローソク足データを取得する
+// csvPath が空なら real モード（スタブ）、指定あれば historical モード
+func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, error) {
+	pair := currency.Pair(pairStr)
+
+	if csvPath == "" {
+		// real モード: スタブ（RealApiBroker未実装）
+		return []pkgmarket.Candle{}, nil
+	}
+
+	// historical モード: カーソル位置まで復元して取得
+	statePath := filepath.Join(stateDir, "historical_state.json")
+	hs, err := store.LoadHistoricalState(statePath)
+	if err != nil {
+		return nil, fmt.Errorf("load historical state: %w", err)
+	}
+
+	b, err := broker.NewHistoricalBroker(pair, csvPath)
+	if err != nil {
+		return nil, fmt.Errorf("historical broker: %w", err)
+	}
+
+	for i := 0; i < hs.Cursor; i++ {
+		if !b.Advance() {
+			break
+		}
+	}
+
+	return b.FetchCandles(pair, n)
+}
+
 func runSubmitOrder(args []string) {
 	fs := flag.NewFlagSet("submit-order", flag.ExitOnError)
 	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
@@ -101,7 +185,6 @@ func runSubmitOrder(args []string) {
 	sp := pool.RestoreSubPool(snap)
 	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
 
-	// スタブBroker: 実際のAPIは未実装のためHistoricalBrokerを代替に使えないのでstubを使う
 	b := &stubBroker{}
 	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
 
@@ -130,7 +213,7 @@ func runSubmitOrder(args []string) {
 
 	req := pool.OrderRequest{
 		SubPoolID:       pool.SubPoolID(*subPoolID),
-		Pair:            currency.USDJPY, // TODO: pairフラグから変換
+		Pair:            currency.Pair(*pair),
 		Side:            orderSide,
 		Lots:            decimal.NewFromFloat(*lots),
 		OrderType:       ot,
@@ -140,7 +223,6 @@ func runSubmitOrder(args []string) {
 		ClosePositionID: *closePositionID,
 		RequestedAt:     time.Now(),
 	}
-	_ = pair // TODO: 通貨ペア変換
 
 	if err := agg.SubmitOrder(ctx, req); err != nil {
 		log.Fatalf("submit order: %v", err)
@@ -149,7 +231,6 @@ func runSubmitOrder(args []string) {
 		log.Fatalf("sync fills: %v", err)
 	}
 
-	// SubPoolの最新状態を保存
 	if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
 		log.Fatalf("save subpool: %v", err)
 	}
