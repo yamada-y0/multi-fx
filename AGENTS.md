@@ -1,60 +1,52 @@
 # AGENTS.md
 
-このファイルはAIエージェント（Claude Codeなど）がこのリポジトリで作業する際の指針。
+AIエージェント（Claude Codeなど）がこのリポジトリで作業する際の指針。
 
 ## プロジェクト概要
 
-FX自動取引システムの技術検証。Go + AWS Lambda + DynamoDB 構成。詳細は [README.md](./README.md) を参照。
+定期キック型のFX自動取引システム。Claude Codeをトレーディングエージェントとして組み込む。
+詳細は [README.md](./README.md) を参照。
 
 ## ビルド・テスト
 
-```bash
-go build ./...   # ビルド確認（エラーゼロが必須）
-go test ./...    # テスト実行
-go vet ./...     # 静的解析
-```
+コード変更後は必ず実行すること:
 
-コード変更後は必ず `go build ./...` でエラーがないことを確認すること。
+```bash
+go build ./...
+go vet ./...
+go test ./...
+```
 
 ## 設計上の絶対ルール（変更禁止）
 
-1. **フロアルール**: `rule.FloorRule` は全戦略共通の安全装置。条件を緩める変更は行わない
+1. **フロアルール**: `rule.FloorRule` は全戦略共通の安全装置。`ThresholdRatio` の条件を緩める変更は行わない
 2. **ライフサイクル一方向**: Active → Suspended → Terminated の順序は変えない。`pool.ValidateTransition` をバイパスしない
-3. **LLM 非決定性の境界**: LLM を呼び出すコードは `internal/commander/` にのみ置く。他のパッケージに LLM 呼び出しを追加しない
-4. **逆指値必須**: `OrderRequest.StopLoss` は必須。ゼロ値で発注するコードを書かない
-5. **資金移動禁止**: SubPool 間の直接資金移動は行わない。Master ← SubPool の返還を経由すること
+3. **StopLoss必須**: `OrderRequest.StopLoss` はゼロ値で発注するコードを書かない
+4. **Broker独立**: `internal/broker` は `internal/pool` に依存しない。変換は `internal/order.Aggregator` が担う
+5. **資金移動禁止**: SubPool間の直接資金移動は行わない
 
 ## コーディング規約
 
 - **パッケージ構成**: `internal/` は外部公開しない。外部から使う型は `pkg/` に置く
-- **インターフェース**: 実装より先にインターフェースを定義する。テスト可能性を優先
 - **エラーハンドリング**: `fmt.Errorf("パッケージ名: %w", err)` でラップして文脈を付ける
-- **時刻**: `time.Now()` を直接呼ばず `pkg/clock.Clock` を使う（テスト差し替えのため）
-- **コメント**: 未実装箇所は `// TODO:` で理由と設計メモを残す
+- **コメント**: 非自明な制約・不変条件・特定バグへのワークアラウンドのみコメントを書く
 
 ## 依存方向（循環インポート禁止）
 
 ```
-cmd/* → internal/commander
-         internal/commander → internal/pool, internal/rule
-         internal/order     → internal/pool
-         internal/broker    → internal/order, internal/pool
-         internal/agent     → internal/pool
-         internal/*         → pkg/currency, pkg/clock
+cmd/*  →  internal/tick, internal/broker, internal/order, internal/pool, internal/agent, internal/rule, internal/store
+          internal/tick    → internal/order, internal/pool, internal/agent, internal/rule, internal/store
+          internal/order   → internal/pool, internal/store
+          internal/broker  → pkg/order, pkg/currency, pkg/market
+          internal/pool    → pkg/currency, pkg/order  （他のinternalパッケージをインポートしない）
+          internal/agent   → internal/pool, pkg/currency
+          internal/rule    → internal/pool
+          internal/store   → internal/pool
+          internal/*       → pkg/currency, pkg/order, pkg/market, pkg/clock
 ```
 
-`internal/pool` は他の `internal/` パッケージをインポートしない（最下層）。
+## 変更時の注意
 
-## 実装を始める前に確認すること
-
-- インターフェース定義が変わる場合は、依存するすべてのパッケージへの影響を確認する
 - `internal/pool/sub.go` の `SubPool` インターフェースは多くのパッケージが依存する。シグネチャ変更は慎重に
-- DynamoDB テーブル設計が固まっていない段階では `store.StateStore` のインメモリ実装でテストを書く
-
-## 未決事項（実装前に設計を固める）
-
-- `internal/agent/Strategy.OnTick` のシグネチャ詳細（戦略ごとのパラメータ）
-- `internal/order/virtual.go` の仮想約定価格算出ロジック
-- `internal/commander/llm.go` のプロンプト設計・JSON スキーマ
-- DynamoDB テーブル設計（PK/SK 構造）
-- Commander の LLM 呼び出し頻度（毎ティック vs 間引き）
+- `internal/broker/broker.go` の `HistoricalBrokerSnapshot` を変更する場合は、既存の `broker_snapshot.json` との互換性を確認する
+- `internal/agent/wakeup.go` の `WakeupCondition.IsMet()` シグネチャを変更する場合は `internal/tick/tick.go` も合わせて変更する
