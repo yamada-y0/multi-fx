@@ -50,4 +50,22 @@ type HistoricalBroker interface {
 
 	// FetchCandles は現在ティックから遡って最大 n 本の足データを返す（新しい順）
 	FetchCandles(pair currency.Pair, n int) ([]market.Candle, error)
+
+	// Snapshot は現在の状態をスナップショットとして返す
+	Snapshot() HistoricalBrokerSnapshot
+
+	// Restore はスナップショットから状態を復元する（CSV rows は別途渡す）
+	Restore(snap HistoricalBrokerSnapshot)
+}
+
+// PendingOrderSnapshot は永続化用の未約定注文
+type PendingOrderSnapshot struct {
+	ID    string        `json:"id"`
+	Order pkgorder.Order `json:"order"`
+}
+
+// HistoricalBrokerSnapshot は HistoricalBroker の永続化可能な状態
+type HistoricalBrokerSnapshot struct {
+	Cursor  int                    `json:"cursor"`
+	Pending []PendingOrderSnapshot `json:"pending"`
 }

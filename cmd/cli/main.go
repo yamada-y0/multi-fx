@@ -124,40 +124,43 @@ func runMarket(args []string) {
 }
 
 // fetchCandles はモードに応じてローソク足データを取得する
-// csvPath が空なら real モード（スタブ）、指定あれば historical モード
 func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, error) {
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
-		// real モード: スタブ（RealApiBroker未実装）
 		return []pkgmarket.Candle{}, nil
 	}
 
-	// historical モード: カーソル位置まで復元して取得
-	statePath := filepath.Join(stateDir, "historical_state.json")
-	hs, err := store.LoadHistoricalState(statePath)
+	b, err := restoreHistoricalBroker(stateDir, csvPath, pair)
 	if err != nil {
-		return nil, fmt.Errorf("load historical state: %w", err)
+		return nil, err
 	}
 
+	return b.FetchCandles(pair, n)
+}
+
+// restoreHistoricalBroker は broker_snapshot.json から HistoricalBroker を復元する
+func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
 	b, err := broker.NewHistoricalBroker(pair, csvPath)
 	if err != nil {
 		return nil, fmt.Errorf("historical broker: %w", err)
 	}
 
-	for i := 0; i < hs.Cursor; i++ {
-		if !b.Advance() {
-			break
-		}
+	snapPath := filepath.Join(stateDir, "broker_snapshot.json")
+	snap, err := broker.LoadHistoricalBrokerSnapshot(snapPath)
+	if err != nil {
+		return nil, fmt.Errorf("load broker snapshot: %w", err)
 	}
+	b.Restore(snap)
 
-	return b.FetchCandles(pair, n)
+	return b, nil
 }
 
 func runSubmitOrder(args []string) {
 	fs := flag.NewFlagSet("submit-order", flag.ExitOnError)
 	stateDir := fs.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
 	subPoolID := fs.String("subpool", "", "対象SubPoolID（必須）")
+	csvPath := fs.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	side := fs.String("side", "", "long or short（必須）")
 	lots := fs.Float64("lots", 0, "ロット数（必須）")
@@ -168,7 +171,7 @@ func runSubmitOrder(args []string) {
 	fs.Parse(args)
 
 	if *stateDir == "" || *subPoolID == "" || *side == "" || *lots == 0 || *stopLoss == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --subpool <id> --side <long|short> --lots <n> --stop-loss <price>")
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --subpool <id> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
 		os.Exit(1)
 	}
 
@@ -185,8 +188,20 @@ func runSubmitOrder(args []string) {
 	sp := pool.RestoreSubPool(snap)
 	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
 
-	b := &stubBroker{}
-	agg := order.NewAggregator(b, subPools, order.NewIdentityMapper(), st)
+	// Broker構築: historicalモードなら復元、なければstub
+	var b broker.Broker
+	var hb broker.HistoricalBroker
+	if *csvPath != "" {
+		hb, err = restoreHistoricalBroker(*stateDir, *csvPath, currency.Pair(*pair))
+		if err != nil {
+			log.Fatalf("restore broker: %v", err)
+		}
+		b = hb
+	} else {
+		b = &stubBroker{}
+	}
+
+	agg := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
 
 	var orderSide pkgorder.Side
 	switch strings.ToLower(*side) {
@@ -235,6 +250,14 @@ func runSubmitOrder(args []string) {
 		log.Fatalf("save subpool: %v", err)
 	}
 
+	// historicalモードではBrokerスナップショットを保存（成行約定後のfillsをクリア済みの状態）
+	if hb != nil {
+		snapPath := filepath.Join(*stateDir, "broker_snapshot.json")
+		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
+			log.Fatalf("save broker snapshot: %v", err)
+		}
+	}
+
 	printJSON(sp.Snapshot())
 }
 
@@ -245,14 +268,15 @@ func runSetWakeup(args []string) {
 	after := fs.String("after", "", "この時刻以降に起動（RFC3339形式）")
 	priceGTE := fs.String("price-gte", "", "レートがこの価格以上になったら起動（例: USDJPY:150.0）")
 	priceLTE := fs.String("price-lte", "", "レートがこの価格以下になったら起動（例: USDJPY:148.0）")
+	anyFill := fs.Bool("any-fill", false, "未約定注文が約定したら起動")
 	fs.Parse(args)
 
 	if *stateDir == "" || *subPoolID == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx set-wakeup --state-dir <dir> --subpool <id> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>]")
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx set-wakeup --state-dir <dir> --subpool <id> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>] [--any-fill]")
 		os.Exit(1)
 	}
 
-	cond := agent.WakeupCondition{}
+	cond := agent.WakeupCondition{AnyFill: *anyFill}
 
 	if *after != "" {
 		t, err := time.Parse(time.RFC3339, *after)
@@ -278,7 +302,7 @@ func runSetWakeup(args []string) {
 		cond.PriceLTE = map[currency.Pair]decimal.Decimal{pair: price}
 	}
 
-	if cond.After == nil && cond.PriceGTE == nil && cond.PriceLTE == nil {
+	if cond.After == nil && cond.PriceGTE == nil && cond.PriceLTE == nil && !cond.AnyFill {
 		log.Fatalf("at least one wakeup condition must be specified")
 	}
 
@@ -311,7 +335,7 @@ func printJSON(v any) {
 	}
 }
 
-// stubBroker は CLI用のスタブBroker。RealApiBroker実装までの代替。
+// stubBroker は real モード用スタブ（RealApiBroker未実装の代替）
 type stubBroker struct{}
 
 func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.OrderID, error) {

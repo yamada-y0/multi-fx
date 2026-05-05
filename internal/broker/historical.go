@@ -70,6 +70,22 @@ func newHistoricalBroker(pair currency.Pair, rows []market.Candle) *historicalBr
 
 func (b *historicalBroker) Name() string { return "historical" }
 
+func (b *historicalBroker) Snapshot() HistoricalBrokerSnapshot {
+	pending := make([]PendingOrderSnapshot, len(b.pending))
+	for i, p := range b.pending {
+		pending[i] = PendingOrderSnapshot{ID: string(p.id), Order: p.order}
+	}
+	return HistoricalBrokerSnapshot{Cursor: b.cursor, Pending: pending}
+}
+
+func (b *historicalBroker) Restore(snap HistoricalBrokerSnapshot) {
+	b.cursor = snap.Cursor
+	b.pending = make([]pendingOrder, len(snap.Pending))
+	for i, p := range snap.Pending {
+		b.pending[i] = pendingOrder{id: OrderID(p.ID), order: p.Order}
+	}
+}
+
 func (b *historicalBroker) CurrentTime() time.Time {
 	return b.rows[b.cursor].Timestamp
 }

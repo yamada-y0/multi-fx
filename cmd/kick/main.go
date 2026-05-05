@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/yamada/multi-fx/internal/agent"
@@ -50,14 +49,20 @@ func main() {
 		log.Fatalf("subpool not found: %v", err)
 	}
 
-	// ブローカー・レート取得
-	b, rate, done, err := setupBroker(ctx, *stateDir, *csvPath, *pair)
+	// Broker構築・復元
+	b, done, err := setupBroker(*stateDir, *csvPath, *pair)
 	if err != nil {
 		log.Fatalf("setup broker: %v", err)
 	}
 	if done {
 		log.Printf("historical データ終端 → 終了")
 		os.Exit(0)
+	}
+
+	// レート取得
+	rate, err := b.FetchRate(ctx, currency.Pair(*pair))
+	if err != nil {
+		log.Fatalf("fetch rate: %v", err)
 	}
 
 	// SubPool・Aggregator復元
@@ -73,6 +78,14 @@ func main() {
 	result, err := ticker.Tick(ctx, rate)
 	if err != nil {
 		log.Fatalf("tick: %v", err)
+	}
+
+	// Brokerスナップショットを保存（Advance後の状態）
+	if hb, ok := b.(broker.HistoricalBroker); ok {
+		snapPath := filepath.Join(*stateDir, "broker_snapshot.json")
+		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
+			log.Fatalf("save broker snapshot: %v", err)
+		}
 	}
 
 	if result.Done {
@@ -102,55 +115,36 @@ func main() {
 	}
 }
 
-// setupBroker はモードに応じてBrokerとレートを準備する
-// historical モードではカーソルを1進めて保存する
+// setupBroker はモードに応じてBrokerを構築・復元する
+// historical モードでは broker_snapshot.json から復元して Advance() を1回呼ぶ
 // done=true のときデータ終端に達したことを示す
-func setupBroker(ctx context.Context, stateDir, csvPath, pairStr string) (broker.Broker, currency.Rate, bool, error) {
+func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error) {
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
 		// real モード: スタブ（RealApiBroker未実装）
-		b := &stubBroker{pair: pair}
-		rate := currency.Rate{
-			Pair:      pair,
-			Bid:       decimal.NewFromFloat(150.0),
-			Ask:       decimal.NewFromFloat(150.0),
-			Timestamp: time.Now(),
-		}
-		return b, rate, false, nil
+		return &stubBroker{pair: pair}, false, nil
 	}
 
 	// historical モード
-	statePath := filepath.Join(stateDir, "historical_state.json")
-	hs, err := store.LoadHistoricalState(statePath)
-	if err != nil {
-		return nil, currency.Rate{}, false, fmt.Errorf("load historical state: %w", err)
-	}
-
 	b, err := broker.NewHistoricalBroker(pair, csvPath)
 	if err != nil {
-		return nil, currency.Rate{}, false, fmt.Errorf("historical broker: %w", err)
+		return nil, false, fmt.Errorf("historical broker: %w", err)
 	}
 
-	// カーソル位置まで復元
-	for i := 0; i < hs.Cursor; i++ {
-		if !b.Advance() {
-			return nil, currency.Rate{}, true, nil
-		}
-	}
-
-	rate, err := b.FetchRate(ctx, pair)
+	snapPath := filepath.Join(stateDir, "broker_snapshot.json")
+	snap, err := broker.LoadHistoricalBrokerSnapshot(snapPath)
 	if err != nil {
-		return nil, currency.Rate{}, false, fmt.Errorf("fetch rate: %w", err)
+		return nil, false, fmt.Errorf("load broker snapshot: %w", err)
+	}
+	b.Restore(snap)
+
+	// 1ティック進める
+	if !b.Advance() {
+		return nil, true, nil
 	}
 
-	// カーソルを1進めて保存
-	b.Advance()
-	if err := store.SaveHistoricalState(statePath, store.HistoricalState{Cursor: hs.Cursor + 1}); err != nil {
-		return nil, currency.Rate{}, false, fmt.Errorf("save historical state: %w", err)
-	}
-
-	return b, rate, false, nil
+	return b, false, nil
 }
 
 // runClaude は Claude Code を起動してセッションIDを返す
