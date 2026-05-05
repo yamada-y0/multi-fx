@@ -25,13 +25,12 @@ import (
 func main() {
 	stateDir := flag.String("state-dir", "", "JSONStoreのディレクトリパス（必須）")
 	subPoolID := flag.String("subpool", "", "対象SubPoolID（必須）")
-	systemPrompt := flag.String("system-prompt", "", "Claudeに渡す戦略方針テキスト（必須）")
 	csvPath := flag.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := flag.String("pair", "USDJPY", "通貨ペア")
 	flag.Parse()
 
-	if *stateDir == "" || *subPoolID == "" || *systemPrompt == "" {
-		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> --subpool <id> --system-prompt <prompt> [--data <csv> --pair <pair>]")
+	if *stateDir == "" || *subPoolID == "" {
+		fmt.Fprintln(os.Stderr, "Usage: kick --state-dir <dir> --subpool <id> [--data <csv> --pair <pair>]")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -100,7 +99,7 @@ func main() {
 
 	log.Printf("Claude起動 (fills=%d)", result.FillCount)
 
-	sessionID, err := runClaude(*systemPrompt, snap.SessionID)
+	sessionID, err := runClaude(*stateDir, snap.SessionID)
 	if err != nil {
 		log.Fatalf("claude: %v", err)
 	}
@@ -148,8 +147,9 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 }
 
 // runClaude は Claude Code を起動してセッションIDを返す
-func runClaude(systemPrompt, prevSessionID string) (string, error) {
-	args := []string{"-p", "--output-format", "json", "--system-prompt", systemPrompt}
+// state-dir を --add-dir で渡すことで AGENT.md を参照可能にする
+func runClaude(stateDir, prevSessionID string) (string, error) {
+	args := []string{"-p", "--output-format", "json", "--add-dir", stateDir}
 	if prevSessionID != "" {
 		args = append(args, "--resume", prevSessionID)
 	}

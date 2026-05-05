@@ -99,7 +99,104 @@ func runInitSubPool(args []string) {
 		log.Fatalf("save subpool: %v", err)
 	}
 
+	// AGENT.md が未作成であればテンプレートを生成する
+	agentMDPath := filepath.Join(*stateDir, "AGENT.md")
+	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
+		if err := writeAgentMD(agentMDPath, *stateDir, *subPoolID); err != nil {
+			log.Fatalf("write AGENT.md: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "AGENT.md を生成しました: %s\n戦略方針を記入してください。\n", agentMDPath)
+	}
+
 	printJSON(sp.Snapshot())
+}
+
+func writeAgentMD(path, stateDir, subPoolID string) error {
+	content := `# FX取引エージェント設定
+
+## 戦略方針
+
+<!-- ここに戦略方針を記入してください -->
+
+## 行動手順
+
+起動するたびに以下の順序で行動してください。
+
+1. 現在の口座状態を確認する
+2. 直近の市場データを確認する
+3. 保有ポジション・未約定注文の状況と市場データを踏まえて判断する
+4. 発注・決済・何もしない、のいずれかを実行する
+5. 次の起動条件（wakeup条件）を設定して終了する
+
+必ず最後にset-wakeupを呼んで終了すること。wakeup条件を設定しないと次回起動されません。
+
+## 利用可能なコマンド
+
+### 口座状態の確認
+
+` + "```" + `bash
+multi-fx snapshot --state-dir <state-dir> --subpool <subpool-id>
+` + "```" + `
+
+### 市場データの取得（直近N本のローソク足、新しい順）
+
+` + "```" + `bash
+multi-fx market --state-dir <state-dir> --data <csv-path> --pair USDJPY --n 20
+` + "```" + `
+
+### 発注（新規）
+
+` + "```" + `bash
+multi-fx submit-order \
+  --state-dir <state-dir> \
+  --subpool <subpool-id> \
+  --pair USDJPY \
+  --data <csv-path> \
+  --side <long|short> \
+  --lots <ロット数> \
+  --stop-loss <ストップロス価格> \
+  --order-type <market|limit> \
+  --limit-price <指値価格（limitのみ）>
+` + "```" + `
+
+### 決済
+
+` + "```" + `bash
+multi-fx submit-order \
+  --state-dir <state-dir> \
+  --subpool <subpool-id> \
+  --pair USDJPY \
+  --data <csv-path> \
+  --side <long|short> \
+  --lots <ロット数> \
+  --stop-loss <ストップロス価格> \
+  --close-position-id <PositionID>
+` + "```" + `
+
+### 次回起動条件の設定（必須）
+
+` + "```" + `bash
+# 指定時刻以降に起動
+multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --after <RFC3339形式>
+
+# レートが価格以上になったら起動
+multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --price-gte USDJPY:<価格>
+
+# レートが価格以下になったら起動
+multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --price-lte USDJPY:<価格>
+
+# 未約定注文が約定したら起動
+multi-fx set-wakeup --state-dir <state-dir> --subpool <subpool-id> --any-fill
+` + "```" + `
+
+## 注意事項
+
+- StopLossは必ず指定すること（リスク管理上必須）
+- 発注しない場合でも必ずset-wakeupで次回起動条件を設定すること
+- PositionIDはsnapshotのPositions[].IDから取得すること
+- ローソク足は新しい順（インデックス0が最新）で返される
+`
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 func runMarket(args []string) {
