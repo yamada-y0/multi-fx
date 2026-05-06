@@ -203,7 +203,8 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"## 注意事項\n\n" +
 		"- StopLossは必ず指定すること（リスク管理上必須）\n" +
 		"- PositionIDはsnapshotのPositions[].IDから取得すること\n" +
-		"- ローソク足は新しい順（インデックス0が最新）で返される\n"
+		"- ローソク足は新しい順（インデックス0が最新）で返される\n" +
+		"- set-wakeup --after に渡す時刻は market の CurrentTime を基準にすること。壁時計の現在時刻は使わないこと\n"
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
@@ -220,24 +221,32 @@ func runMarket(args []string) {
 		os.Exit(1)
 	}
 
-	candles, err := fetchCandles(*stateDir, *csvPath, *pair, *n)
+	candles, currentTime, err := fetchCandles(*stateDir, *csvPath, *pair, *n)
 	if err != nil {
 		log.Fatalf("fetch candles: %v", err)
 	}
 
-	printJSON(candles)
+	type marketOutput struct {
+		CurrentTime time.Time        `json:"CurrentTime"`
+		Candles     []pkgmarket.Candle `json:"Candles"`
+	}
+	printJSON(marketOutput{CurrentTime: currentTime, Candles: candles})
 }
 
-func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, error) {
+func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, time.Time, error) {
 	pair := currency.Pair(pairStr)
 	if csvPath == "" {
-		return []pkgmarket.Candle{}, nil
+		return []pkgmarket.Candle{}, time.Time{}, nil
 	}
 	b, err := restoreHistoricalBroker(stateDir, csvPath, pair)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
-	return b.FetchCandles(pair, n)
+	candles, err := b.FetchCandles(pair, n)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return candles, b.CurrentTime(), nil
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
