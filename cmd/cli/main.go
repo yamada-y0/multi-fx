@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -78,13 +79,14 @@ func runSnapshot(args []string) {
 
 func runInitSubPool(args []string) {
 	fs := flag.NewFlagSet("init-subpool", flag.ExitOnError)
-	baseDir := fs.String("base-dir", "", "エージェントを配置するベースディレクトリ（必須）")
+	cwd, _ := os.Getwd()
+	baseDir := fs.String("base-dir", filepath.Join(cwd, "agents"), "エージェントを配置するベースディレクトリ")
 	balance := fs.Float64("balance", 0, "初期残高（必須）")
 	strategyName := fs.String("strategy", "", "戦略名")
 	fs.Parse(args)
 
-	if *baseDir == "" || *balance == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --base-dir <dir> --balance <amount> [--strategy <name>]")
+	if *balance == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --balance <amount> [--base-dir <dir>] [--strategy <name>]")
 		os.Exit(1)
 	}
 
@@ -105,9 +107,13 @@ func runInitSubPool(args []string) {
 		log.Fatalf("save subpool: %v", err)
 	}
 
-	// CLAUDE.md を生成する
+	// CLAUDE.md を生成する（multi-fxバイナリのパスを埋め込む）
+	mfxPath, err := resolveMultiFXPath()
+	if err != nil {
+		log.Fatalf("multi-fx path: %v", err)
+	}
 	claudeMDPath := filepath.Join(stateDir, "CLAUDE.md")
-	if err := writeClaudeMD(claudeMDPath); err != nil {
+	if err := writeClaudeMD(claudeMDPath, stateDir, mfxPath); err != nil {
 		log.Fatalf("write CLAUDE.md: %v", err)
 	}
 
@@ -115,92 +121,89 @@ func runInitSubPool(args []string) {
 	printJSON(sp.Snapshot())
 }
 
-func writeClaudeMD(path string) error {
-	content := `# FX取引エージェント
+// resolveMultiFXPath は自分自身（multi-fxバイナリ）のフルパスを返す
+func resolveMultiFXPath() (string, error) {
+	if exe, err := os.Executable(); err == nil {
+		return exe, nil
+	}
+	if p, err := exec.LookPath("multi-fx"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("multi-fx binary not found")
+}
 
-## 戦略方針
-
-<!-- ここに戦略方針を記入してください -->
-
-## 行動手順
-
-起動するたびに以下の順序で行動してください。
-
-1. 現在の口座状態を確認する（snapshot）
-2. 直近の市場データを確認する（market）
-3. 保有ポジション・未約定注文の状況と市場データを踏まえて判断する
-4. 発注・決済・何もしない、のいずれかを実行する
-5. 次の起動条件（wakeup条件）を設定して終了する（set-wakeup）
-
-必ず最後にset-wakeupを呼ぶこと。設定しないと次回起動されません。
-wakeup条件は状況に応じて自分で判断すること（時刻・価格トリガー・約定トリガーを組み合わせ可能）。
-ポジションを保有している場合は、毎ティック起動せず価格トリガーで寝かせることを検討すること。
-各ステップで必ずコマンドを実行し、その結果のみを判断材料にすること。過去の会話の記憶や前回の数値は使わないこと。
-
-## コマンドリファレンス
-
-### snapshot — 口座状態の確認
-
-` + "```bash\n" + `multi-fx snapshot --state-dir <state-dir>
-` + "```\n" + `
-### market — 市場データの取得（新しい順）
-
-` + "```bash\n" + `multi-fx market --state-dir <state-dir> --data <csv-path> --pair USDJPY --n 20
-` + "```\n" + `
-### submit-order — 発注（新規）
-
-` + "```bash\n" + `multi-fx submit-order \
-  --state-dir <state-dir> \
-  --pair USDJPY \
-  --data <csv-path> \
-  --side <long|short> \
-  --lots <ロット数> \
-  --stop-loss <ストップロス価格> \
-  --order-type <market|limit> \
-  --limit-price <指値価格（limitのみ）>
-` + "```\n" + `
-### submit-order — 決済
-
-` + "```bash\n" + `multi-fx submit-order \
-  --state-dir <state-dir> \
-  --pair USDJPY \
-  --data <csv-path> \
-  --side <long|short> \
-  --lots <ロット数> \
-  --stop-loss <ストップロス価格> \
-  --close-position-id <PositionID>
-` + "```\n" + `
-### set-wakeup — 次回起動条件の設定
-
-複数回呼ぶとOR評価になる（どれか1つが満たされたら起動）。
-
-` + "```bash\n" + `# 指定時刻以降に起動
-multi-fx set-wakeup --state-dir <state-dir> --after <RFC3339形式>
-
-# レートが価格以上になったら起動
-multi-fx set-wakeup --state-dir <state-dir> --price-gte USDJPY:<価格>
-
-# レートが価格以下になったら起動
-multi-fx set-wakeup --state-dir <state-dir> --price-lte USDJPY:<価格>
-
-# 未約定注文が約定したら起動
-multi-fx set-wakeup --state-dir <state-dir> --any-fill
-` + "```\n" + `
-**ポジション保有中の設定例（ロング、SL=141.0、TP=143.0）:**
-
-` + "```bash\n" + `# SL到達で起動（ロングなら価格が下がったとき）
-multi-fx set-wakeup --state-dir <state-dir> --price-lte USDJPY:141.0
-# TP到達で起動（ロングなら価格が上がったとき）
-multi-fx set-wakeup --state-dir <state-dir> --price-gte USDJPY:143.0
-` + "```\n" + `
-この2行でSL/TPどちらかに到達したとき起動。毎ティック起動は不要。
-` + `
-## 注意事項
-
-- StopLossは必ず指定すること（リスク管理上必須）
-- PositionIDはsnapshotのPositions[].IDから取得すること
-- ローソク足は新しい順（インデックス0が最新）で返される
-`
+func writeClaudeMD(path, stateDir, mfxPath string) error {
+	mfx := mfxPath
+	sd := stateDir
+	content := "# FX取引エージェント\n\n" +
+		"## 戦略方針\n\n" +
+		"<!-- ここに戦略方針を記入してください -->\n\n" +
+		"## 行動手順\n\n" +
+		"起動するたびに以下の順序で行動してください。\n\n" +
+		"1. 現在の口座状態を確認する（snapshot）\n" +
+		"2. 直近の市場データを確認する（market）\n" +
+		"3. 保有ポジション・未約定注文の状況と市場データを踏まえて判断する\n" +
+		"4. 発注・決済・何もしない、のいずれかを実行する\n" +
+		"5. 次の起動条件（wakeup条件）を設定して終了する（set-wakeup）\n\n" +
+		"必ず最後にset-wakeupを呼ぶこと。設定しないと次回起動されません。\n" +
+		"wakeup条件は状況に応じて自分で判断すること（時刻・価格トリガー・約定トリガーを組み合わせ可能）。\n" +
+		"ポジションを保有している場合は、毎ティック起動せず価格トリガーで寝かせることを検討すること。\n" +
+		"各ステップで必ずコマンドを実行し、その結果のみを判断材料にすること。過去の会話の記憶や前回の数値は使わないこと。\n\n" +
+		"## コマンドリファレンス\n\n" +
+		"- `multi-fx`コマンドのパス: `" + mfx + "`\n" +
+		"- state-dir: `" + sd + "`\n\n" +
+		"### snapshot — 口座状態の確認\n\n" +
+		"```bash\n" +
+		mfx + " snapshot --state-dir " + sd + "\n" +
+		"```\n\n" +
+		"### market — 市場データの取得（新しい順）\n\n" +
+		"```bash\n" +
+		mfx + " market --state-dir " + sd + " --data <csv-path> --pair USDJPY --n 20\n" +
+		"```\n\n" +
+		"### submit-order — 発注（新規）\n\n" +
+		"```bash\n" +
+		mfx + " submit-order \\\n" +
+		"  --state-dir " + sd + " \\\n" +
+		"  --pair USDJPY \\\n" +
+		"  --data <csv-path> \\\n" +
+		"  --side <long|short> \\\n" +
+		"  --lots <ロット数> \\\n" +
+		"  --stop-loss <ストップロス価格> \\\n" +
+		"  --order-type <market|limit>\n" +
+		"```\n\n" +
+		"### submit-order — 決済\n\n" +
+		"決済時の--sideはポジションの方向（ロングポジションならlong、ショートポジションならshort）を指定する。\n" +
+		"**--data は決済時も必須。** PositionIDはsnapshotのPositions[].IDから取得すること。\n\n" +
+		"```bash\n" +
+		mfx + " submit-order \\\n" +
+		"  --state-dir " + sd + " \\\n" +
+		"  --pair USDJPY \\\n" +
+		"  --data <csv-path> \\\n" +
+		"  --side <long|short> \\\n" +
+		"  --lots <ロット数> \\\n" +
+		"  --stop-loss <ストップロス価格> \\\n" +
+		"  --close-position-id <PositionID>\n" +
+		"```\n\n" +
+		"### set-wakeup — 次回起動条件の設定\n\n" +
+		"複数回呼ぶとOR評価になる（どれか1つが満たされたら起動）。\n\n" +
+		"```bash\n" +
+		"# 指定時刻以降に起動\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --after <RFC3339形式>\n\n" +
+		"# レートが価格以上になったら起動\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --price-gte USDJPY:<価格>\n\n" +
+		"# レートが価格以下になったら起動\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --price-lte USDJPY:<価格>\n" +
+		"```\n\n" +
+		"**ポジション保有中の設定例（ロング、SL=141.0、TP=143.0）:**\n\n" +
+		"```bash\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --price-lte USDJPY:141.0\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --price-gte USDJPY:143.0\n" +
+		"```\n\n" +
+		"この2行でSL/TPどちらかに到達したとき起動。毎ティック起動は不要。\n\n" +
+		"## 注意事項\n\n" +
+		"- StopLossは必ず指定すること（リスク管理上必須）\n" +
+		"- PositionIDはsnapshotのPositions[].IDから取得すること\n" +
+		"- ローソク足は新しい順（インデックス0が最新）で返される\n"
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
@@ -266,6 +269,10 @@ func runSubmitOrder(args []string) {
 
 	if *stateDir == "" || *side == "" || *lots == 0 || *stopLoss == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
+		os.Exit(1)
+	}
+	if *csvPath == "" && *closePositionID != "" {
+		fmt.Fprintln(os.Stderr, "error: --data is required when closing a position (--close-position-id)")
 		os.Exit(1)
 	}
 

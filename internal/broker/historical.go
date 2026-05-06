@@ -75,7 +75,11 @@ func (b *historicalBroker) Snapshot() HistoricalBrokerSnapshot {
 	for i, p := range b.pending {
 		pending[i] = PendingOrderSnapshot{ID: string(p.id), Order: p.order}
 	}
-	return HistoricalBrokerSnapshot{Cursor: b.cursor, Pending: pending}
+	positions := make([]pkgorder.Position, 0, len(b.positions))
+	for _, pos := range b.positions {
+		positions = append(positions, pos)
+	}
+	return HistoricalBrokerSnapshot{Cursor: b.cursor, Pending: pending, Positions: positions}
 }
 
 func (b *historicalBroker) Restore(snap HistoricalBrokerSnapshot) {
@@ -83,6 +87,10 @@ func (b *historicalBroker) Restore(snap HistoricalBrokerSnapshot) {
 	b.pending = make([]pendingOrder, len(snap.Pending))
 	for i, p := range snap.Pending {
 		b.pending[i] = pendingOrder{id: OrderID(p.ID), order: p.Order}
+	}
+	b.positions = make(map[string]pkgorder.Position, len(snap.Positions))
+	for _, pos := range snap.Positions {
+		b.positions[pos.ID] = pos
 	}
 }
 

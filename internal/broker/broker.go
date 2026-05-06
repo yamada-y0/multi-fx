@@ -66,6 +66,7 @@ type PendingOrderSnapshot struct {
 
 // HistoricalBrokerSnapshot は HistoricalBroker の永続化可能な状態
 type HistoricalBrokerSnapshot struct {
-	Cursor  int                    `json:"cursor"`
-	Pending []PendingOrderSnapshot `json:"pending"`
+	Cursor    int                      `json:"cursor"`
+	Pending   []PendingOrderSnapshot   `json:"pending"`
+	Positions []pkgorder.Position      `json:"positions"`
 }

@@ -179,13 +179,9 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	systemPrompt := "あなたはFX取引エージェントです。" +
 		stateDir + "/CLAUDE.md の行動手順・戦略方針・コマンドリファレンスに従って行動してください。"
 	prompt := "CLAUDE.mdの行動手順に従って行動してください。"
-	// multi-fxコマンドのみBash実行を自動許可する
-	multiFXBin, _ := os.Executable()
-	// kick自身ではなくmulti-fxバイナリのパスを渡す必要があるため、
-	// 同じディレクトリのmulti-fxを探す、なければPATHから解決
-	multiFXPath, err := exec.LookPath("multi-fx")
+	multiFXPath, err := resolveMultiFX()
 	if err != nil {
-		multiFXPath = filepath.Join(filepath.Dir(multiFXBin), "multi-fx")
+		return "", fmt.Errorf("multi-fx not found: %w", err)
 	}
 	allowedTool := fmt.Sprintf("Bash(%s *)", multiFXPath)
 
@@ -340,6 +336,21 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 	}
 
 	return sb.String()
+}
+
+// resolveMultiFX は multi-fx コマンドのフルパスを返す
+// kick バイナリと同じディレクトリを優先し、なければ PATH から探す
+func resolveMultiFX() (string, error) {
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "multi-fx")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	if p, err := exec.LookPath("multi-fx"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("multi-fx not found in same directory as kick or PATH")
 }
 
 // resolveClaude は claude コマンドのフルパスを返す
