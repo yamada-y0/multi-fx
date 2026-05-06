@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/agent"
-	"github.com/yamada/multi-fx/internal/order"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/internal/rule"
-	"github.com/yamada/multi-fx/internal/store"
-	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/fxd/internal/agent"
+	"github.com/yamada/fxd/internal/order"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/internal/rule"
+	"github.com/yamada/fxd/internal/store"
+	"github.com/yamada/fxd/pkg/currency"
 )
 
 // Result は1ティック分の処理結果

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/fxd/internal/pool"
 )
 
 type MemoryStore struct {

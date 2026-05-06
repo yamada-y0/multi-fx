@@ -7,13 +7,13 @@ import (
 	"os"
 	"sync"
 
-	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/fxd/internal/pool"
 )
 
 // JSONWakeupStore は WakeupStore のJSONファイルベース実装
 // kickとcliプロセス間でWakeupConditionを共有する
 type JSONWakeupStore struct {
-	path string // ファイルパス（例: ~/.multi-fx/wakeup.json）
+	path string // ファイルパス（例: ~/.fxd/wakeup.json）
 	mu   sync.Mutex
 }
 

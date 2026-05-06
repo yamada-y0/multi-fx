@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/fxd/internal/pool"
 )
 
 // JSONStore は StateStore のJSONファイルベース実装

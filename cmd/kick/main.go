@@ -14,15 +14,15 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/agent"
-	"github.com/yamada/multi-fx/internal/broker"
-	"github.com/yamada/multi-fx/internal/order"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/internal/rule"
-	"github.com/yamada/multi-fx/internal/store"
-	"github.com/yamada/multi-fx/internal/tick"
-	"github.com/yamada/multi-fx/pkg/currency"
-	pkgorder "github.com/yamada/multi-fx/pkg/order"
+	"github.com/yamada/fxd/internal/agent"
+	"github.com/yamada/fxd/internal/broker"
+	"github.com/yamada/fxd/internal/order"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/internal/rule"
+	"github.com/yamada/fxd/internal/store"
+	"github.com/yamada/fxd/internal/tick"
+	"github.com/yamada/fxd/pkg/currency"
+	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 func main() {
@@ -181,7 +181,7 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	prompt := "CLAUDE.mdの行動手順に従って行動してください。"
 	multiFXPath, err := resolveMultiFX()
 	if err != nil {
-		return "", fmt.Errorf("multi-fx not found: %w", err)
+		return "", fmt.Errorf("fxd not found: %w", err)
 	}
 	allowedTool := fmt.Sprintf("Bash(%s *)", multiFXPath)
 
@@ -338,19 +338,19 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 	return sb.String()
 }
 
-// resolveMultiFX は multi-fx コマンドのフルパスを返す
+// resolveMultiFX は fxd コマンドのフルパスを返す
 // kick バイナリと同じディレクトリを優先し、なければ PATH から探す
 func resolveMultiFX() (string, error) {
 	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "multi-fx")
+		candidate := filepath.Join(filepath.Dir(exe), "fxd")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
 	}
-	if p, err := exec.LookPath("multi-fx"); err == nil {
+	if p, err := exec.LookPath("fxd"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("multi-fx not found in same directory as kick or PATH")
+	return "", fmt.Errorf("fxd not found in same directory as kick or PATH")
 }
 
 // resolveClaude は claude コマンドのフルパスを返す

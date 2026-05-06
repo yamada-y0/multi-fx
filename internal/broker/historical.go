@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/pkg/currency"
-	"github.com/yamada/multi-fx/pkg/market"
-	pkgorder "github.com/yamada/multi-fx/pkg/order"
+	"github.com/yamada/fxd/pkg/currency"
+	"github.com/yamada/fxd/pkg/market"
+	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 type pendingOrder struct {

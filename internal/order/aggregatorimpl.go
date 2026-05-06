@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yamada/multi-fx/internal/broker"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/internal/store"
+	"github.com/yamada/fxd/internal/broker"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/internal/store"
 )
 
 type aggregator struct {

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/fxd/pkg/currency"
 )
 
 // Side は売買方向

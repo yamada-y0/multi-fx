@@ -3,9 +3,9 @@ package order
 import (
 	"context"
 
-	"github.com/yamada/multi-fx/internal/broker"
-	"github.com/yamada/multi-fx/internal/pool"
-	pkgorder "github.com/yamada/multi-fx/pkg/order"
+	"github.com/yamada/fxd/internal/broker"
+	"github.com/yamada/fxd/internal/pool"
+	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 // ManagedOrder は Aggregator が管理するオーダー（SubPool と Broker のオーダーを紐付ける）

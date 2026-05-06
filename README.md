@@ -1,4 +1,4 @@
-# multi-fx
+# fxd
 
 AIエージェントを組み込んだFX自動取引システムの技術検証プロジェクト。
 
@@ -11,10 +11,10 @@ Claude Codeをトレーディングエージェントとして組み込み、定
 cron（ローカル or CI）
   ↓ 定期キック
 cmd/kick（WakeupCondition判定 → Claudeを起動）
-  ↓ --allowedTools "Bash(multi-fx *)"
+  ↓ --allowedTools "Bash(fxd *)"
 Claude Code（FXエージェントとして動作）
   ↓ Bashツール経由でサブコマンドを呼び出す
-cmd/cli（multi-fx）
+cmd/cli（fxd）
   ├── snapshot  — 口座状態の確認
   ├── market    — 市場データの取得
   ├── submit-order — 発注・決済
@@ -32,13 +32,13 @@ internal/（SubPool・Broker・Store・RuleEngine）
 3. レートを取得し、`internal/tick.Ticker.Tick()` で1ティック分の処理を実行
    - OnRate（含み損益更新） → SyncFills（約定判定） → フロアルール評価 → WakeupCondition評価 → SubPool保存
 4. WakeupConditionが達成されていれば `claude -p` を起動
-5. Claude（FXエージェント）が `multi-fx` サブコマンドを使って判断・発注・WakeupCondition設定
+5. Claude（FXエージェント）が `fxd` サブコマンドを使って判断・発注・WakeupCondition設定
 6. Claude終了後、セッションログをMarkdownとして `state-dir/logs/` に保存
 
 ### ディレクトリ構成
 
 ```
-multi-fx/
+fxd/
 ├── cmd/
 │   ├── kick/              # 定期キックエントリポイント（cronから呼ばれる）
 │   └── cli/               # CLIサブコマンド群（Claude Codeが使用）
@@ -62,7 +62,7 @@ multi-fx/
 エージェントはUUIDベースのディレクトリで管理される。
 
 ```
-~/.mfx/agents/
+~/.fxd/agents/
 └── <uuid>/
     ├── subpool.json          # SubPoolの状態
     ├── broker_snapshot.json  # HistoricalBrokerの状態（cursor + PendingOrders）
@@ -75,7 +75,7 @@ multi-fx/
 ### エージェントの作成
 
 ```bash
-multi-fx init-subpool --base-dir ~/.mfx/agents --balance 1000000
+fxd init-subpool --base-dir ~/.fxd/agents --balance 1000000
 ```
 
 生成されたディレクトリの `CLAUDE.md` に戦略方針とコマンドパスを記入する。
@@ -84,7 +84,7 @@ multi-fx init-subpool --base-dir ~/.mfx/agents --balance 1000000
 
 ```bash
 kick \
-  --state-dir ~/.mfx/agents/<uuid> \
+  --state-dir ~/.fxd/agents/<uuid> \
   --data ./testdata/USDJPY_2024_h1.csv \
   --pair USDJPY
 ```
@@ -94,13 +94,13 @@ kick \
 ### snapshot — 口座状態の確認
 
 ```bash
-multi-fx snapshot --state-dir <state-dir>
+fxd snapshot --state-dir <state-dir>
 ```
 
 ### market — 市場データの取得（新しい順）
 
 ```bash
-multi-fx market \
+fxd market \
   --state-dir <state-dir> \
   --data <csv-path> \
   --pair USDJPY \
@@ -113,7 +113,7 @@ HistoricalBrokerの現在位置から過去N本のローソク足を返す（イ
 
 ```bash
 # 新規発注
-multi-fx submit-order \
+fxd submit-order \
   --state-dir <state-dir> \
   --data <csv-path> \
   --pair USDJPY \
@@ -123,7 +123,7 @@ multi-fx submit-order \
   --order-type <market|limit>
 
 # 決済
-multi-fx submit-order \
+fxd submit-order \
   --state-dir <state-dir> \
   --data <csv-path> \
   --pair USDJPY \
@@ -137,16 +137,16 @@ multi-fx submit-order \
 
 ```bash
 # 指定時刻以降
-multi-fx set-wakeup --state-dir <state-dir> --after <RFC3339>
+fxd set-wakeup --state-dir <state-dir> --after <RFC3339>
 
 # レートが価格以上
-multi-fx set-wakeup --state-dir <state-dir> --price-gte USDJPY:150.0
+fxd set-wakeup --state-dir <state-dir> --price-gte USDJPY:150.0
 
 # レートが価格以下
-multi-fx set-wakeup --state-dir <state-dir> --price-lte USDJPY:148.0
+fxd set-wakeup --state-dir <state-dir> --price-lte USDJPY:148.0
 
 # 未約定注文が約定したら
-multi-fx set-wakeup --state-dir <state-dir> --any-fill
+fxd set-wakeup --state-dir <state-dir> --any-fill
 ```
 
 ## 開発
@@ -160,7 +160,7 @@ go vet ./...
 go test ./...
 
 # バイナリビルド
-go build -o /tmp/multi-fx ./cmd/cli
+go build -o /tmp/fxd ./cmd/cli
 go build -o /tmp/kick ./cmd/kick
 ```
 

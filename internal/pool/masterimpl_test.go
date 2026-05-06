@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/fxd/internal/pool"
 )
 
 func newTestMaster(total float64) pool.MasterPool {

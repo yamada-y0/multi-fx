@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/pkg/currency"
-	pkgorder "github.com/yamada/multi-fx/pkg/order"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/pkg/currency"
+	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 func d(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }

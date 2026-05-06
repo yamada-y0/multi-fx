@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/fxd/pkg/currency"
 )
 
 // Candle はOHLCVの1本の足データ

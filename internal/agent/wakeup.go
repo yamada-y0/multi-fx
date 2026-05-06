@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/pkg/currency"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/pkg/currency"
 )
 
 // WakeupStore は SubPool ごとのウェイクアップ条件を永続化する

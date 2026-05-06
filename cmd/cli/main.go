@@ -14,19 +14,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/yamada/multi-fx/internal/agent"
-	"github.com/yamada/multi-fx/internal/broker"
-	"github.com/yamada/multi-fx/internal/order"
-	"github.com/yamada/multi-fx/internal/pool"
-	"github.com/yamada/multi-fx/internal/store"
-	"github.com/yamada/multi-fx/pkg/currency"
-	pkgmarket "github.com/yamada/multi-fx/pkg/market"
-	pkgorder "github.com/yamada/multi-fx/pkg/order"
+	"github.com/yamada/fxd/internal/agent"
+	"github.com/yamada/fxd/internal/broker"
+	"github.com/yamada/fxd/internal/order"
+	"github.com/yamada/fxd/internal/pool"
+	"github.com/yamada/fxd/internal/store"
+	"github.com/yamada/fxd/pkg/currency"
+	pkgmarket "github.com/yamada/fxd/pkg/market"
+	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx <command> [options]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd <command> [options]")
 		fmt.Fprintln(os.Stderr, "Commands: snapshot, submit-order, set-wakeup, market, init-subpool")
 		os.Exit(1)
 	}
@@ -59,7 +59,7 @@ func runSnapshot(args []string) {
 	fs.Parse(args)
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx snapshot --state-dir <dir>")
+		fmt.Fprintln(os.Stderr, "Usage: fxd snapshot --state-dir <dir>")
 		os.Exit(1)
 	}
 
@@ -86,7 +86,7 @@ func runInitSubPool(args []string) {
 	fs.Parse(args)
 
 	if *balance == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx init-subpool --balance <amount> [--base-dir <dir>] [--strategy <name>]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd init-subpool --balance <amount> [--base-dir <dir>] [--strategy <name>]")
 		os.Exit(1)
 	}
 
@@ -107,10 +107,10 @@ func runInitSubPool(args []string) {
 		log.Fatalf("save subpool: %v", err)
 	}
 
-	// CLAUDE.md を生成する（multi-fxバイナリのパスを埋め込む）
+	// CLAUDE.md を生成する（fxdバイナリのパスを埋め込む）
 	mfxPath, err := resolveMultiFXPath()
 	if err != nil {
-		log.Fatalf("multi-fx path: %v", err)
+		log.Fatalf("fxd path: %v", err)
 	}
 	claudeMDPath := filepath.Join(stateDir, "CLAUDE.md")
 	if err := writeClaudeMD(claudeMDPath, stateDir, mfxPath); err != nil {
@@ -121,15 +121,15 @@ func runInitSubPool(args []string) {
 	printJSON(sp.Snapshot())
 }
 
-// resolveMultiFXPath は自分自身（multi-fxバイナリ）のフルパスを返す
+// resolveMultiFXPath は自分自身（fxdバイナリ）のフルパスを返す
 func resolveMultiFXPath() (string, error) {
 	if exe, err := os.Executable(); err == nil {
 		return exe, nil
 	}
-	if p, err := exec.LookPath("multi-fx"); err == nil {
+	if p, err := exec.LookPath("fxd"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("multi-fx binary not found")
+	return "", fmt.Errorf("fxd binary not found")
 }
 
 func writeClaudeMD(path, stateDir, mfxPath string) error {
@@ -150,7 +150,7 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"ポジションを保有している場合は、毎ティック起動せず価格トリガーで寝かせることを検討すること。\n" +
 		"各ステップで必ずコマンドを実行し、その結果のみを判断材料にすること。過去の会話の記憶や前回の数値は使わないこと。\n\n" +
 		"## コマンドリファレンス\n\n" +
-		"- `multi-fx`コマンドのパス: `" + mfx + "`\n" +
+		"- `fxd`コマンドのパス: `" + mfx + "`\n" +
 		"- state-dir: `" + sd + "`\n\n" +
 		"### snapshot — 口座状態の確認\n\n" +
 		"```bash\n" +
@@ -216,7 +216,7 @@ func runMarket(args []string) {
 	fs.Parse(args)
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx market --state-dir <dir> [--data <csv>] [--pair <pair>] [--n <count>]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd market --state-dir <dir> [--data <csv>] [--pair <pair>] [--n <count>]")
 		os.Exit(1)
 	}
 
@@ -268,7 +268,7 @@ func runSubmitOrder(args []string) {
 	fs.Parse(args)
 
 	if *stateDir == "" || *side == "" || *lots == 0 || *stopLoss == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx submit-order --state-dir <dir> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd submit-order --state-dir <dir> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
 		os.Exit(1)
 	}
 	if *csvPath == "" && *closePositionID != "" {
@@ -372,7 +372,7 @@ func runSetWakeup(args []string) {
 	fs.Parse(args)
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: multi-fx set-wakeup --state-dir <dir> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>] [--any-fill]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd set-wakeup --state-dir <dir> [--after <time>] [--price-gte <pair:price>] [--price-lte <pair:price>] [--any-fill]")
 		os.Exit(1)
 	}
 

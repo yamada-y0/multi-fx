@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/yamada/multi-fx/internal/pool"
+	"github.com/yamada/fxd/internal/pool"
 )
 
 // StateStore は SubPool・Fill の状態を永続化する抽象

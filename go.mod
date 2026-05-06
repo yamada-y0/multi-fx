@@ -1,4 +1,4 @@
-module github.com/yamada/multi-fx
+module github.com/yamada/fxd
 
 go 1.24.4
 
