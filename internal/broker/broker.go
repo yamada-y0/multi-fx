@@ -27,6 +27,10 @@ type Broker interface {
 	// FetchOrders は現在 PENDING 状態のオーダー一覧を返す（冪等）
 	FetchOrders(ctx context.Context) ([]pkgorder.PendingOrder, error)
 
+	// FetchFillEvents は sinceID より新しい約定イベントを古い順で返す（冪等）
+	// sinceID="" のとき全件を返す。返された最後のイベントのIDを次回の sinceID として使う。
+	FetchFillEvents(ctx context.Context, sinceID string) ([]pkgorder.FillEvent, error)
+
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
 
@@ -64,7 +68,8 @@ type PendingOrderSnapshot struct {
 
 // HistoricalBrokerSnapshot は HistoricalBroker の永続化可能な状態
 type HistoricalBrokerSnapshot struct {
-	Cursor    int                      `json:"cursor"`
-	Pending   []PendingOrderSnapshot   `json:"pending"`
-	Positions []pkgorder.Position      `json:"positions"`
+	Cursor          int                    `json:"cursor"`
+	Pending         []PendingOrderSnapshot `json:"pending"`
+	Positions       []pkgorder.Position    `json:"positions"`
+	LastFillEventID string                 `json:"last_fill_event_id"`
 }

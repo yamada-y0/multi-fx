@@ -58,18 +58,17 @@ func ToOrder(req pool.OrderRequest, mapper PositionIDMapper) pkgorder.Order {
 	return o
 }
 
-// ToPoolFill は Broker からの pkg/order.Fill を pool.Fill に変換する
-// managed は BrokerOrderID から引いた ManagedOrder（Intent・ClosePositionID を復元するため）
-func ToPoolFill(f pkgorder.Fill, managed ManagedOrder) pool.Fill {
+// ToPoolFillFromEvent は FillEvent と ManagedOrder から pool.Fill を生成する
+func ToPoolFillFromEvent(ev pkgorder.FillEvent, managed ManagedOrder) pool.Fill {
 	return pool.Fill{
-		BrokerOrderID:   f.OrderID,
-		PositionID:      f.PositionID,
+		BrokerOrderID:   ev.OrderID,
+		PositionID:      ev.PositionID,
 		SubPoolID:       managed.Req.SubPoolID,
-		Pair:            f.Pair,
-		Side:            f.Side,
-		Lots:            f.Lots,
-		FilledPrice:     f.FilledPrice,
-		FilledAt:        f.FilledAt,
+		Pair:            ev.Pair,
+		Side:            ev.Side,
+		Lots:            ev.Lots,
+		FilledPrice:     ev.FilledPrice,
+		FilledAt:        ev.FilledAt,
 		Intent:          managed.Req.OrderIntent,
 		ClosePositionID: managed.Req.ClosePositionID,
 	}

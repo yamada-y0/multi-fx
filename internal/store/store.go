@@ -16,4 +16,8 @@ type StateStore interface {
 	// Fill 履歴の永続化
 	SaveFill(ctx context.Context, fill pool.Fill) error
 	ListFills(ctx context.Context, subPoolID pool.SubPoolID) ([]pool.Fill, error)
+
+	// FetchFillEvents の sinceID 永続化（グローバルに1つ）
+	SaveLastFillEventID(ctx context.Context, id string) error
+	LoadLastFillEventID(ctx context.Context) (string, error)
 }

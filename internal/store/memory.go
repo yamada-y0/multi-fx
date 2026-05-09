@@ -10,10 +10,11 @@ import (
 )
 
 type MemoryStore struct {
-	mu            sync.RWMutex
-	subPools      map[pool.SubPoolID]pool.SubPoolSnapshot
-	fills         []pool.Fill
-	masterBalance decimal.Decimal
+	mu              sync.RWMutex
+	subPools        map[pool.SubPoolID]pool.SubPoolSnapshot
+	fills           []pool.Fill
+	masterBalance   decimal.Decimal
+	lastFillEventID string
 }
 
 func NewMemoryStore(initialMasterBalance decimal.Decimal) *MemoryStore {
@@ -58,5 +59,18 @@ func (s *MemoryStore) ListFills(_ context.Context, subPoolID pool.SubPoolID) ([]
 		}
 	}
 	return result, nil
+}
+
+func (s *MemoryStore) SaveLastFillEventID(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastFillEventID = id
+	return nil
+}
+
+func (s *MemoryStore) LoadLastFillEventID(_ context.Context) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastFillEventID, nil
 }
 

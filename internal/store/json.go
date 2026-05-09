@@ -25,9 +25,10 @@ func NewJSONStore(dir string) (*JSONStore, error) {
 	return &JSONStore{dir: dir}, nil
 }
 
-func (s *JSONStore) subPoolsPath() string     { return filepath.Join(s.dir, "subpools.json") }
-func (s *JSONStore) fillsPath() string        { return filepath.Join(s.dir, "fills.json") }
-func (s *JSONStore) masterBalancePath() string { return filepath.Join(s.dir, "master_balance.json") }
+func (s *JSONStore) subPoolsPath() string        { return filepath.Join(s.dir, "subpools.json") }
+func (s *JSONStore) fillsPath() string           { return filepath.Join(s.dir, "fills.json") }
+func (s *JSONStore) masterBalancePath() string   { return filepath.Join(s.dir, "master_balance.json") }
+func (s *JSONStore) lastFillEventIDPath() string { return filepath.Join(s.dir, "last_fill_event_id.json") }
 
 func (s *JSONStore) SaveSubPool(_ context.Context, snap pool.SubPoolSnapshot) error {
 	s.mu.Lock()
@@ -82,6 +83,22 @@ func (s *JSONStore) ListFills(_ context.Context, subPoolID pool.SubPoolID) ([]po
 	return result, nil
 }
 
+
+func (s *JSONStore) SaveLastFillEventID(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.writeJSON(s.lastFillEventIDPath(), id)
+}
+
+func (s *JSONStore) LoadLastFillEventID(_ context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var id string
+	if err := s.readJSON(s.lastFillEventIDPath(), &id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
 
 func (s *JSONStore) loadSubPools() (map[pool.SubPoolID]pool.SubPoolSnapshot, error) {
 	m := make(map[pool.SubPoolID]pool.SubPoolSnapshot)

@@ -57,9 +57,9 @@ func RestoreSubPool(snap SubPoolSnapshot) SubPool {
 		realizedPnL:    snap.RealizedPnL,
 		positions:      positions,
 		pendingOrders:  pendingOrders,
-		strategyName:   snap.StrategyName,
-		sessionID:      snap.SessionID,
-		createdAt:      snap.CreatedAt,
+		strategyName: snap.StrategyName,
+		sessionID:    snap.SessionID,
+		createdAt:    snap.CreatedAt,
 		updatedAt:      snap.UpdatedAt,
 	}
 }
@@ -84,9 +84,9 @@ func (s *subPool) Snapshot() SubPoolSnapshot {
 		RealizedPnL:    s.realizedPnL,
 		Positions:      positions,
 		PendingOrders:  pendingOrders,
-		StrategyName:   s.strategyName,
-		SessionID:      s.sessionID,
-		CreatedAt:      s.createdAt,
+		StrategyName: s.strategyName,
+		SessionID:    s.sessionID,
+		CreatedAt:    s.createdAt,
 		UpdatedAt:      s.updatedAt,
 	}
 }

@@ -22,11 +22,12 @@ type pendingOrder struct {
 }
 
 type historicalBroker struct {
-	pair      currency.Pair
-	rows      []market.Candle
-	cursor    int
-	pending   []pendingOrder
-	positions map[string]pkgorder.Position // key: PositionID
+	pair        currency.Pair
+	rows        []market.Candle
+	cursor      int
+	pending     []pendingOrder
+	positions   map[string]pkgorder.Position // key: PositionID
+	fillEvents  []pkgorder.FillEvent         // 約定イベントログ（追記のみ）
 }
 
 // NewHistoricalBroker は Dukascopy 形式の CSV を読み込んで HistoricalBroker を返す
@@ -78,7 +79,16 @@ func (b *historicalBroker) Snapshot() HistoricalBrokerSnapshot {
 	for _, pos := range b.positions {
 		positions = append(positions, pos)
 	}
-	return HistoricalBrokerSnapshot{Cursor: b.cursor, Pending: pending, Positions: positions}
+	lastID := ""
+	if len(b.fillEvents) > 0 {
+		lastID = b.fillEvents[len(b.fillEvents)-1].ID
+	}
+	return HistoricalBrokerSnapshot{
+		Cursor:          b.cursor,
+		Pending:         pending,
+		Positions:       positions,
+		LastFillEventID: lastID,
+	}
 }
 
 func (b *historicalBroker) Restore(snap HistoricalBrokerSnapshot) {
@@ -91,6 +101,9 @@ func (b *historicalBroker) Restore(snap HistoricalBrokerSnapshot) {
 	for _, pos := range snap.Positions {
 		b.positions[pos.ID] = pos
 	}
+	// fillEvents はプロセス内メモリにのみ存在する。
+	// 再起動後は LastFillEventID を sinceID として FetchFillEvents を呼ぶことで
+	// 取りこぼしなく再開できる（Aggregator が sinceID を別途永続化する）。
 }
 
 func (b *historicalBroker) CurrentTime() time.Time {
@@ -155,13 +168,16 @@ func (b *historicalBroker) fillPrice(o pkgorder.Order) decimal.Decimal {
 	return b.rows[b.cursor].Close
 }
 
-// recordFill は新規/決済に応じてポジションを追加/削除する
+// recordFill はポジションを更新し FillEvent をログに追記する
 func (b *historicalBroker) recordFill(id OrderID, o pkgorder.Order, price decimal.Decimal, ts time.Time) {
+	eventID := fmt.Sprintf("%d", len(b.fillEvents)+1)
+	positionID := o.ClosePositionID
+
 	switch o.Intent {
 	case pkgorder.OrderIntentOpen:
-		posID := uuid.New().String()
-		b.positions[posID] = pkgorder.Position{
-			ID:        posID,
+		positionID = uuid.New().String()
+		b.positions[positionID] = pkgorder.Position{
+			ID:        positionID,
 			Pair:      o.Pair,
 			Side:      o.Side,
 			Lots:      o.Lots,
@@ -171,6 +187,18 @@ func (b *historicalBroker) recordFill(id OrderID, o pkgorder.Order, price decima
 	case pkgorder.OrderIntentClose:
 		delete(b.positions, o.ClosePositionID)
 	}
+
+	b.fillEvents = append(b.fillEvents, pkgorder.FillEvent{
+		ID:          eventID,
+		OrderID:     string(id),
+		PositionID:  positionID,
+		Intent:      o.Intent,
+		Pair:        o.Pair,
+		Side:        o.Side,
+		Lots:        o.Lots,
+		FilledPrice: price,
+		FilledAt:    ts,
+	})
 }
 
 func (b *historicalBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (OrderID, error) {
@@ -199,6 +227,20 @@ func (b *historicalBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrd
 		result[i] = pkgorder.PendingOrder{ID: string(p.id), Order: p.order}
 	}
 	return result, nil
+}
+
+// FetchFillEvents は sinceID より新しい約定イベントを古い順で返す
+func (b *historicalBroker) FetchFillEvents(_ context.Context, sinceID string) ([]pkgorder.FillEvent, error) {
+	if sinceID == "" {
+		return append([]pkgorder.FillEvent{}, b.fillEvents...), nil
+	}
+	for i, e := range b.fillEvents {
+		if e.ID == sinceID {
+			return append([]pkgorder.FillEvent{}, b.fillEvents[i+1:]...), nil
+		}
+	}
+	// sinceID が見つからない場合は全件返す
+	return append([]pkgorder.FillEvent{}, b.fillEvents...), nil
 }
 
 func (b *historicalBroker) CancelOrder(_ context.Context, id OrderID) error {

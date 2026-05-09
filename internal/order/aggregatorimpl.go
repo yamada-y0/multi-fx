@@ -11,20 +11,23 @@ import (
 )
 
 type aggregator struct {
-	broker   broker.Broker
-	subPools map[pool.SubPoolID]pool.SubPool
-	orders   map[broker.OrderID]ManagedOrder
-	mapper   PositionIDMapper
-	store    store.StateStore
+	broker          broker.Broker
+	subPools        map[pool.SubPoolID]pool.SubPool
+	orders          map[broker.OrderID]ManagedOrder
+	mapper          PositionIDMapper
+	store           store.StateStore
+	lastFillEventID string
 }
 
 func NewAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool, mapper PositionIDMapper, st store.StateStore) Aggregator {
+	lastID, _ := st.LoadLastFillEventID(context.Background())
 	return &aggregator{
-		broker:   b,
-		subPools: subPools,
-		orders:   make(map[broker.OrderID]ManagedOrder),
-		mapper:   mapper,
-		store:    st,
+		broker:          b,
+		subPools:        subPools,
+		orders:          make(map[broker.OrderID]ManagedOrder),
+		mapper:          mapper,
+		store:           st,
+		lastFillEventID: lastID,
 	}
 }
 
@@ -37,12 +40,14 @@ func RestoreAggregator(b broker.Broker, subPools map[pool.SubPoolID]pool.SubPool
 			orders[id] = ManagedOrder{BrokerOrderID: id, Req: po.Req}
 		}
 	}
+	lastID, _ := st.LoadLastFillEventID(context.Background())
 	return &aggregator{
-		broker:   b,
-		subPools: subPools,
-		orders:   orders,
-		mapper:   mapper,
-		store:    st,
+		broker:          b,
+		subPools:        subPools,
+		orders:          orders,
+		mapper:          mapper,
+		store:           st,
+		lastFillEventID: lastID,
 	}
 }
 
@@ -83,103 +88,51 @@ func (a *aggregator) CancelOrder(ctx context.Context, subPoolID pool.SubPoolID, 
 	return nil
 }
 
-// SyncFills はブローカーの現在状態と Aggregator/SubPool の既知状態を比較し、
-// 差分から約定を導出して SubPool に通知する。
-//
-// 約定検出のロジック:
-//   - a.orders にあってブローカーの pending 一覧にない → 約定済み
-//   - Open 約定: ブローカーの positions にあって SubPool にないポジション → PositionID を特定
-//   - Close 約定: SubPool にあってブローカーの positions にないポジション → 決済済み
+// SyncFills は FetchFillEvents で新規イベントを取得し SubPool に通知する。
+// lastFillEventID を sinceID として使い、処理後に更新・永続化する。
 func (a *aggregator) SyncFills(ctx context.Context) error {
-	brokerOrders, err := a.broker.FetchOrders(ctx)
+	events, err := a.broker.FetchFillEvents(ctx, a.lastFillEventID)
 	if err != nil {
-		return fmt.Errorf("aggregator: fetch orders: %w", err)
-	}
-	brokerPositions, err := a.broker.FetchPositions(ctx)
-	if err != nil {
-		return fmt.Errorf("aggregator: fetch positions: %w", err)
+		return fmt.Errorf("aggregator: fetch fill events: %w", err)
 	}
 
-	// ブローカー側でまだ pending なオーダーのセット
-	stillPending := make(map[broker.OrderID]struct{}, len(brokerOrders))
-	for _, o := range brokerOrders {
-		stillPending[broker.OrderID(o.ID)] = struct{}{}
-	}
-
-	// ブローカー側のポジションセット
-	brokerPosSet := make(map[string]pkgorder.Position, len(brokerPositions))
-	for _, p := range brokerPositions {
-		brokerPosSet[p.ID] = p
-	}
-
-	// a.orders にあってブローカーの pending にない → 約定済み
-	for id, managed := range a.orders {
-		if _, ok := stillPending[id]; ok {
+	for _, ev := range events {
+		managed, ok := a.orders[broker.OrderID(ev.OrderID)]
+		if !ok {
+			// 自分が発注していないイベント（他プロセスなど）は無視
+			a.lastFillEventID = ev.ID
 			continue
 		}
 
 		sp, ok := a.subPools[managed.Req.SubPoolID]
 		if !ok {
-			delete(a.orders, id)
+			delete(a.orders, broker.OrderID(ev.OrderID))
+			a.lastFillEventID = ev.ID
 			continue
 		}
 
-		var fill pkgorder.Fill
-		fill.OrderID = string(id)
-		fill.Pair = managed.Req.Pair
-		fill.Side = managed.Req.Side
-		fill.Lots = managed.Req.Lots
-
-		switch managed.Req.OrderIntent {
-		case pool.OrderIntentOpen:
-			// SubPool にないポジションがブローカー側にある → それが新規約定ポジション
-			posID := a.findNewPosition(sp, brokerPosSet)
-			if posID == "" {
-				// まだポジションが反映されていない（次ティックに持ち越し）
-				continue
-			}
-			bp := brokerPosSet[posID]
-			fill.PositionID = posID
-			fill.FilledPrice = bp.OpenPrice
-			fill.FilledAt = bp.OpenedAt
-			a.mapper.Register(posID, posID)
-
-		case pool.OrderIntentClose:
-			// SubPool にあってブローカーにないポジション → 決済済み
-			posID := managed.Req.ClosePositionID
-			if _, stillOpen := brokerPosSet[posID]; stillOpen {
-				// まだ決済されていない
-				continue
-			}
-			fill.PositionID = posID
-			fill.FilledPrice = managed.Req.StopLoss // 近似値。正確な約定価格はブローカーAPIから取得が必要
-			fill.FilledAt = managed.Req.RequestedAt
+		if ev.Intent == pkgorder.OrderIntentOpen {
+			a.mapper.Register(ev.PositionID, ev.PositionID)
 		}
 
-		poolFill := ToPoolFill(fill, managed)
+		poolFill := ToPoolFillFromEvent(ev, managed)
 		sp.OnFill(poolFill)
 
 		if err := a.store.SaveFill(ctx, poolFill); err != nil {
 			return fmt.Errorf("aggregator: save fill: %w", err)
 		}
 
-		delete(a.orders, id)
+		delete(a.orders, broker.OrderID(ev.OrderID))
+		a.lastFillEventID = ev.ID
 	}
-	return nil
-}
 
-// findNewPosition は SubPool にないポジションIDをブローカー側から探す
-func (a *aggregator) findNewPosition(sp pool.SubPool, brokerPosSet map[string]pkgorder.Position) string {
-	spPosSet := make(map[string]struct{})
-	for _, p := range sp.Snapshot().Positions {
-		spPosSet[p.ID] = struct{}{}
-	}
-	for id := range brokerPosSet {
-		if _, known := spPosSet[id]; !known {
-			return id
+	if len(events) > 0 {
+		if err := a.store.SaveLastFillEventID(ctx, a.lastFillEventID); err != nil {
+			return fmt.Errorf("aggregator: save last fill event id: %w", err)
 		}
 	}
-	return ""
+
+	return nil
 }
 
 func (a *aggregator) ActiveOrders() []ManagedOrder {

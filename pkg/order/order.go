@@ -50,6 +50,21 @@ type PendingOrder struct {
 	Order Order
 }
 
+// FillEvent はブローカーが検出した約定イベント
+// Historical: pending→約定の変化から生成
+// OANDA: GET /v1/accounts/:id/transactions から取得
+type FillEvent struct {
+	ID          string // ブローカー固有のイベントID（sinceID として使う）
+	OrderID     string
+	PositionID  string
+	Intent      OrderIntent
+	Pair        currency.Pair
+	Side        Side
+	Lots        decimal.Decimal
+	FilledPrice decimal.Decimal
+	FilledAt    time.Time
+}
+
 // Fill はブローカーからの約定通知
 type Fill struct {
 	OrderID     string

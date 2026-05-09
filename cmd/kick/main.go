@@ -377,6 +377,9 @@ func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.Or
 func (b *stubBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrder, error) {
 	return nil, nil
 }
+func (b *stubBroker) FetchFillEvents(_ context.Context, _ string) ([]pkgorder.FillEvent, error) {
+	return nil, nil
+}
 func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error { return nil }
 func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, error) {
 	return nil, nil
