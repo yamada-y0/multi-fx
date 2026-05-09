@@ -93,305 +93,16 @@ func TestHistoricalBroker_FetchRate_UnsupportedPair(t *testing.T) {
 func TestHistoricalBroker_Stop_Long_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
 		Side:      pkgorder.Long,
 		Lots:      d(0.1),
 		OrderType: pkgorder.OrderTypeStop,
+		Intent:    pkgorder.OrderIntentOpen,
 		StopLoss:  d(138.50), // tick1 Low=138.00 <= 138.50 → 約定
 	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
 
 	b.Advance()
-
-	fills, err := b.FetchFills(context.Background())
-	if err != nil {
-		t.Fatalf("FetchFills: %v", err)
-	}
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if !fills[0].FilledPrice.Equal(d(138.50)) {
-		t.Errorf("FilledPrice = %v, want 138.50", fills[0].FilledPrice)
-	}
-}
-
-func TestHistoricalBroker_Stop_Long_NotFilled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Long,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeStop,
-		StopLoss:  d(137.00), // tick1 Low=138.00 > 137.00 → 約定しない
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 0 {
-		t.Errorf("fills = %d, want 0", len(fills))
-	}
-}
-
-func TestHistoricalBroker_Stop_Short_Filled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Short,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeStop,
-		StopLoss:  d(141.50), // tick1 High=142.00 >= 141.50 → 約定
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if !fills[0].FilledPrice.Equal(d(141.50)) {
-		t.Errorf("FilledPrice = %v, want 141.50", fills[0].FilledPrice)
-	}
-}
-
-// --- OrderTypeMarket（成行）---
-
-func TestHistoricalBroker_Market_Long_FilledImmediately(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Long,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeMarket,
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	// Advance() 前に取得できる（即時約定）
-	fills, err := b.FetchFills(context.Background())
-	if err != nil {
-		t.Fatalf("FetchFills: %v", err)
-	}
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	// tick0 の Close=140.50 で約定
-	if !fills[0].FilledPrice.Equal(d(140.50)) {
-		t.Errorf("FilledPrice = %v, want 140.50", fills[0].FilledPrice)
-	}
-}
-
-func TestHistoricalBroker_Market_Short_FilledImmediately(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Short,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeMarket,
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if !fills[0].FilledPrice.Equal(d(140.50)) {
-		t.Errorf("FilledPrice = %v, want 140.50", fills[0].FilledPrice)
-	}
-}
-
-// --- OrderTypeLimit（指値）---
-
-func TestHistoricalBroker_Limit_Long_Filled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Long,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(139.50), // tick1 Low=138.00 <= 139.50 → 約定
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if !fills[0].FilledPrice.Equal(d(139.50)) {
-		t.Errorf("FilledPrice = %v, want 139.50", fills[0].FilledPrice)
-	}
-}
-
-func TestHistoricalBroker_Limit_Long_NotFilled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Long,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(137.50), // tick1 Low=138.00 > 137.50 → 約定しない
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 0 {
-		t.Errorf("fills = %d, want 0", len(fills))
-	}
-}
-
-func TestHistoricalBroker_Limit_Long_ExactPrice(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Long,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(138.00), // tick1 Low=138.00 と一致 → 約定する
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1 (exact price should fill)", len(fills))
-	}
-}
-
-func TestHistoricalBroker_Limit_Short_Filled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Short,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(141.50), // tick1 High=142.00 >= 141.50 → 約定
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 1 {
-		t.Fatalf("fills = %d, want 1", len(fills))
-	}
-	if !fills[0].FilledPrice.Equal(d(141.50)) {
-		t.Errorf("FilledPrice = %v, want 141.50", fills[0].FilledPrice)
-	}
-}
-
-func TestHistoricalBroker_Limit_Short_NotFilled(t *testing.T) {
-	b := newTestBroker(t)
-
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Short,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(142.50), // tick1 High=142.00 < 142.50 → 約定しない
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 0 {
-		t.Errorf("fills = %d, want 0", len(fills))
-	}
-}
-
-func TestHistoricalBroker_Limit_CancelBeforeFill(t *testing.T) {
-	b := newTestBroker(t)
-
-	id, err := b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:       currency.USDJPY,
-		Side:       pkgorder.Long,
-		Lots:       d(0.1),
-		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(139.50), // 刺さるはずだがキャンセルする
-	})
-	if err != nil {
-		t.Fatalf("SubmitOrder: %v", err)
-	}
-
-	if err := b.CancelOrder(context.Background(), id); err != nil {
-		t.Fatalf("CancelOrder: %v", err)
-	}
-
-	b.Advance()
-
-	fills, _ := b.FetchFills(context.Background())
-	if len(fills) != 0 {
-		t.Errorf("fills = %d, want 0 after cancel", len(fills))
-	}
-}
-
-// --- FetchFills の既読クリア ---
-
-func TestHistoricalBroker_FetchFills_ClearsAfterRead(t *testing.T) {
-	b := newTestBroker(t)
-
-	b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Long,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeStop,
-		StopLoss:  d(138.50),
-	})
-	b.Advance()
-
-	b.FetchFills(context.Background())
-	fills, _ := b.FetchFills(context.Background()) // 2回目は空のはず
-	if len(fills) != 0 {
-		t.Errorf("fills = %d, want 0 on second fetch", len(fills))
-	}
-}
-
-// --- FetchPositions（建玉管理）---
-
-func TestHistoricalBroker_Position_CreatedOnMarketFill(t *testing.T) {
-	b := newTestBroker(t)
-
-	b.SubmitOrder(context.Background(), pkgorder.Order{
-		Pair:      currency.USDJPY,
-		Side:      pkgorder.Long,
-		Lots:      d(0.1),
-		OrderType: pkgorder.OrderTypeMarket,
-	})
 
 	positions, err := b.FetchPositions(context.Background())
 	if err != nil {
@@ -400,15 +111,103 @@ func TestHistoricalBroker_Position_CreatedOnMarketFill(t *testing.T) {
 	if len(positions) != 1 {
 		t.Fatalf("positions = %d, want 1", len(positions))
 	}
-	if positions[0].Side != pkgorder.Long {
-		t.Errorf("Side = %v, want Long", positions[0].Side)
+	if !positions[0].OpenPrice.Equal(d(138.50)) {
+		t.Errorf("OpenPrice = %v, want 138.50", positions[0].OpenPrice)
+	}
+}
+
+func TestHistoricalBroker_Stop_Long_NotFilled(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Long,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeStop,
+		Intent:    pkgorder.OrderIntentOpen,
+		StopLoss:  d(137.00), // tick1 Low=138.00 > 137.00 → 約定しない
+	})
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 0 {
+		t.Errorf("positions = %d, want 0", len(positions))
+	}
+}
+
+func TestHistoricalBroker_Stop_Short_Filled(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Short,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeStop,
+		Intent:    pkgorder.OrderIntentOpen,
+		StopLoss:  d(141.50), // tick1 High=142.00 >= 141.50 → 約定
+	})
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 1 {
+		t.Fatalf("positions = %d, want 1", len(positions))
+	}
+	if !positions[0].OpenPrice.Equal(d(141.50)) {
+		t.Errorf("OpenPrice = %v, want 141.50", positions[0].OpenPrice)
+	}
+}
+
+// --- OrderTypeMarket（成行）---
+
+func TestHistoricalBroker_Market_Long_FilledImmediately(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Long,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeMarket,
+		Intent:    pkgorder.OrderIntentOpen,
+	})
+
+	// Advance() 前でも即時約定でポジションが存在する
+	positions, err := b.FetchPositions(context.Background())
+	if err != nil {
+		t.Fatalf("FetchPositions: %v", err)
+	}
+	if len(positions) != 1 {
+		t.Fatalf("positions = %d, want 1", len(positions))
 	}
 	if !positions[0].OpenPrice.Equal(d(140.50)) {
 		t.Errorf("OpenPrice = %v, want 140.50", positions[0].OpenPrice)
 	}
 }
 
-func TestHistoricalBroker_Position_CreatedOnLimitFill(t *testing.T) {
+func TestHistoricalBroker_Market_Short_FilledImmediately(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Short,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeMarket,
+		Intent:    pkgorder.OrderIntentOpen,
+	})
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 1 {
+		t.Fatalf("positions = %d, want 1", len(positions))
+	}
+	if !positions[0].OpenPrice.Equal(d(140.50)) {
+		t.Errorf("OpenPrice = %v, want 140.50", positions[0].OpenPrice)
+	}
+}
+
+// --- OrderTypeLimit（指値）---
+
+func TestHistoricalBroker_Limit_Long_Filled(t *testing.T) {
 	b := newTestBroker(t)
 
 	b.SubmitOrder(context.Background(), pkgorder.Order{
@@ -416,7 +215,8 @@ func TestHistoricalBroker_Position_CreatedOnLimitFill(t *testing.T) {
 		Side:       pkgorder.Long,
 		Lots:       d(0.1),
 		OrderType:  pkgorder.OrderTypeLimit,
-		LimitPrice: d(139.50),
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(139.50), // tick1 Low=138.00 <= 139.50 → 約定
 	})
 
 	b.Advance()
@@ -430,23 +230,178 @@ func TestHistoricalBroker_Position_CreatedOnLimitFill(t *testing.T) {
 	}
 }
 
-func TestHistoricalBroker_Position_Accumulates(t *testing.T) {
+func TestHistoricalBroker_Limit_Long_NotFilled(t *testing.T) {
 	b := newTestBroker(t)
 
-	for range 3 {
-		b.SubmitOrder(context.Background(), pkgorder.Order{
-			Pair:      currency.USDJPY,
-			Side:      pkgorder.Long,
-			Lots:      d(0.1),
-			OrderType: pkgorder.OrderTypeMarket,
-		})
-	}
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Long,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(137.50), // tick1 Low=138.00 > 137.50 → 約定しない
+	})
+
+	b.Advance()
 
 	positions, _ := b.FetchPositions(context.Background())
-	if len(positions) != 3 {
-		t.Errorf("positions = %d, want 3", len(positions))
+	if len(positions) != 0 {
+		t.Errorf("positions = %d, want 0", len(positions))
 	}
 }
+
+func TestHistoricalBroker_Limit_Long_ExactPrice(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Long,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(138.00), // tick1 Low=138.00 と一致 → 約定する
+	})
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 1 {
+		t.Fatalf("positions = %d, want 1 (exact price should fill)", len(positions))
+	}
+}
+
+func TestHistoricalBroker_Limit_Short_Filled(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Short,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(141.50), // tick1 High=142.00 >= 141.50 → 約定
+	})
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 1 {
+		t.Fatalf("positions = %d, want 1", len(positions))
+	}
+	if !positions[0].OpenPrice.Equal(d(141.50)) {
+		t.Errorf("OpenPrice = %v, want 141.50", positions[0].OpenPrice)
+	}
+}
+
+func TestHistoricalBroker_Limit_Short_NotFilled(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Short,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(142.50), // tick1 High=142.00 < 142.50 → 約定しない
+	})
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 0 {
+		t.Errorf("positions = %d, want 0", len(positions))
+	}
+}
+
+func TestHistoricalBroker_Limit_CancelBeforeFill(t *testing.T) {
+	b := newTestBroker(t)
+
+	id, err := b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Long,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(139.50),
+	})
+	if err != nil {
+		t.Fatalf("SubmitOrder: %v", err)
+	}
+
+	if err := b.CancelOrder(context.Background(), id); err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+
+	b.Advance()
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 0 {
+		t.Errorf("positions = %d, want 0 after cancel", len(positions))
+	}
+}
+
+// --- FetchOrders ---
+
+func TestHistoricalBroker_FetchOrders_ReturnsPending(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Long,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(137.00), // 約定しない価格
+	})
+
+	orders, err := b.FetchOrders(context.Background())
+	if err != nil {
+		t.Fatalf("FetchOrders: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Fatalf("orders = %d, want 1", len(orders))
+	}
+}
+
+func TestHistoricalBroker_FetchOrders_EmptyAfterFill(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:       currency.USDJPY,
+		Side:       pkgorder.Long,
+		Lots:       d(0.1),
+		OrderType:  pkgorder.OrderTypeLimit,
+		Intent:     pkgorder.OrderIntentOpen,
+		LimitPrice: d(139.50), // tick1 で約定する
+	})
+
+	b.Advance()
+
+	orders, _ := b.FetchOrders(context.Background())
+	if len(orders) != 0 {
+		t.Errorf("orders = %d, want 0 after fill", len(orders))
+	}
+}
+
+func TestHistoricalBroker_FetchOrders_MarketOrderNotPending(t *testing.T) {
+	b := newTestBroker(t)
+
+	b.SubmitOrder(context.Background(), pkgorder.Order{
+		Pair:      currency.USDJPY,
+		Side:      pkgorder.Long,
+		Lots:      d(0.1),
+		OrderType: pkgorder.OrderTypeMarket,
+		Intent:    pkgorder.OrderIntentOpen,
+	})
+
+	// 成行は即時約定なので pending には残らない
+	orders, _ := b.FetchOrders(context.Background())
+	if len(orders) != 0 {
+		t.Errorf("orders = %d, want 0 (market order fills immediately)", len(orders))
+	}
+}
+
+// --- FetchPositions（建玉管理）---
 
 func TestHistoricalBroker_Position_NotClearedOnReRead(t *testing.T) {
 	b := newTestBroker(t)
@@ -456,12 +411,32 @@ func TestHistoricalBroker_Position_NotClearedOnReRead(t *testing.T) {
 		Side:      pkgorder.Long,
 		Lots:      d(0.1),
 		OrderType: pkgorder.OrderTypeMarket,
+		Intent:    pkgorder.OrderIntentOpen,
 	})
 
 	b.FetchPositions(context.Background())
-	positions, _ := b.FetchPositions(context.Background()) // 2回目もクリアされない
+	positions, _ := b.FetchPositions(context.Background())
 	if len(positions) != 1 {
 		t.Errorf("positions = %d, want 1 on second fetch", len(positions))
+	}
+}
+
+func TestHistoricalBroker_Position_Accumulates(t *testing.T) {
+	b := newTestBroker(t)
+
+	for range 3 {
+		b.SubmitOrder(context.Background(), pkgorder.Order{
+			Pair:      currency.USDJPY,
+			Side:      pkgorder.Long,
+			Lots:      d(0.1),
+			OrderType: pkgorder.OrderTypeMarket,
+			Intent:    pkgorder.OrderIntentOpen,
+		})
+	}
+
+	positions, _ := b.FetchPositions(context.Background())
+	if len(positions) != 3 {
+		t.Errorf("positions = %d, want 3", len(positions))
 	}
 }
 
@@ -474,6 +449,7 @@ func TestHistoricalBroker_Position_IDUnique(t *testing.T) {
 			Side:      pkgorder.Long,
 			Lots:      d(0.1),
 			OrderType: pkgorder.OrderTypeMarket,
+			Intent:    pkgorder.OrderIntentOpen,
 		})
 	}
 
@@ -491,17 +467,13 @@ func TestHistoricalBroker_Position_IDUnique(t *testing.T) {
 func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
 	b := newTestBroker(t)
 
-	// 新規建て
-	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
+	b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:      currency.USDJPY,
 		Side:      pkgorder.Long,
 		Lots:      d(0.1),
 		OrderType: pkgorder.OrderTypeMarket,
 		Intent:    pkgorder.OrderIntentOpen,
 	})
-	if err != nil {
-		t.Fatalf("SubmitOrder (open): %v", err)
-	}
 
 	positions, _ := b.FetchPositions(context.Background())
 	if len(positions) != 1 {
@@ -509,8 +481,7 @@ func TestHistoricalBroker_Close_Market_RemovesPosition(t *testing.T) {
 	}
 	posID := positions[0].ID
 
-	// 決済
-	_, err = b.SubmitOrder(context.Background(), pkgorder.Order{
+	_, err := b.SubmitOrder(context.Background(), pkgorder.Order{
 		Pair:            currency.USDJPY,
 		Side:            pkgorder.Short,
 		Lots:            d(0.1),
@@ -557,7 +528,6 @@ func TestHistoricalBroker_FetchCandles_ReturnsNewestFirst(t *testing.T) {
 	if len(candles) != 2 {
 		t.Fatalf("len = %d, want 2", len(candles))
 	}
-	// 新しい順なので candles[0] が tick1、candles[1] が tick0
 	if !candles[0].Close.Equal(d(141.00)) {
 		t.Errorf("candles[0].Close = %v, want 141.00 (tick1)", candles[0].Close)
 	}
@@ -568,7 +538,7 @@ func TestHistoricalBroker_FetchCandles_ReturnsNewestFirst(t *testing.T) {
 
 func TestHistoricalBroker_FetchCandles_CapAtAvailable(t *testing.T) {
 	b := newTestBroker(t)
-	// tick0 の時点でN=10を要求しても1本しか返らない
+
 	candles, err := b.FetchCandles(currency.USDJPY, 10)
 	if err != nil {
 		t.Fatalf("FetchCandles: %v", err)

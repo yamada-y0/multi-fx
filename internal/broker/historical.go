@@ -26,7 +26,6 @@ type historicalBroker struct {
 	rows      []market.Candle
 	cursor    int
 	pending   []pendingOrder
-	fills     []pkgorder.Fill
 	positions map[string]pkgorder.Position // key: PositionID
 }
 
@@ -156,22 +155,12 @@ func (b *historicalBroker) fillPrice(o pkgorder.Order) decimal.Decimal {
 	return b.rows[b.cursor].Close
 }
 
-// recordFill は約定 Fill を記録し、新規/決済に応じてポジションを追加/削除する
+// recordFill は新規/決済に応じてポジションを追加/削除する
 func (b *historicalBroker) recordFill(id OrderID, o pkgorder.Order, price decimal.Decimal, ts time.Time) {
-	b.fills = append(b.fills, pkgorder.Fill{
-		OrderID:     string(id),
-		Pair:        o.Pair,
-		Side:        o.Side,
-		Lots:        o.Lots,
-		FilledPrice: price,
-		FilledAt:    ts,
-	})
-
 	switch o.Intent {
 	case pkgorder.OrderIntentOpen:
 		posID := uuid.New().String()
-		b.fills[len(b.fills)-1].PositionID = posID
-		pos := pkgorder.Position{
+		b.positions[posID] = pkgorder.Position{
 			ID:        posID,
 			Pair:      o.Pair,
 			Side:      o.Side,
@@ -179,7 +168,6 @@ func (b *historicalBroker) recordFill(id OrderID, o pkgorder.Order, price decima
 			OpenPrice: price,
 			OpenedAt:  ts,
 		}
-		b.positions[pos.ID] = pos
 	case pkgorder.OrderIntentClose:
 		delete(b.positions, o.ClosePositionID)
 	}
@@ -205,10 +193,12 @@ func (b *historicalBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (Ord
 	return id, nil
 }
 
-func (b *historicalBroker) FetchFills(_ context.Context) ([]pkgorder.Fill, error) {
-	fills := b.fills
-	b.fills = nil
-	return fills, nil
+func (b *historicalBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrder, error) {
+	result := make([]pkgorder.PendingOrder, len(b.pending))
+	for i, p := range b.pending {
+		result[i] = pkgorder.PendingOrder{ID: string(p.id), Order: p.order}
+	}
+	return result, nil
 }
 
 func (b *historicalBroker) CancelOrder(_ context.Context, id OrderID) error {

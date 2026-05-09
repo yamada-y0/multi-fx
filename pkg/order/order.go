@@ -44,6 +44,12 @@ type Order struct {
 	ClosePositionID string          // Intent==Close のとき、Broker側のPositionID
 }
 
+// PendingOrder はブローカーが保持する未約定注文
+type PendingOrder struct {
+	ID    string
+	Order Order
+}
+
 // Fill はブローカーからの約定通知
 type Fill struct {
 	OrderID     string

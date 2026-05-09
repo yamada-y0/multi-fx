@@ -18,16 +18,14 @@ type Broker interface {
 	// SubmitOrder はオーダーを受け付けて OrderID を返す
 	SubmitOrder(ctx context.Context, order pkgorder.Order) (OrderID, error)
 
-	// FetchFills は前回呼び出し以降に約定した Fill を返す
-	// 返した Fill は既読扱いになり次回以降は含まれない
-	FetchFills(ctx context.Context) ([]pkgorder.Fill, error)
-
 	// CancelOrder は PENDING のオーダーをキャンセルする
 	CancelOrder(ctx context.Context, id OrderID) error
 
-	// FetchPositions は現在保有中のポジション一覧を返す
-	// FetchFills と異なり既読後クリアしない（決済されるまで保持）
+	// FetchPositions は現在保有中のポジション一覧を返す（冪等）
 	FetchPositions(ctx context.Context) ([]pkgorder.Position, error)
+
+	// FetchOrders は現在 PENDING 状態のオーダー一覧を返す（冪等）
+	FetchOrders(ctx context.Context) ([]pkgorder.PendingOrder, error)
 
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)

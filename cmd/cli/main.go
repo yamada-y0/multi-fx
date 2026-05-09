@@ -449,8 +449,10 @@ type stubBroker struct{}
 func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.OrderID, error) {
 	return broker.OrderID("stub-" + string(o.Pair)), nil
 }
-func (b *stubBroker) FetchFills(_ context.Context) ([]pkgorder.Fill, error) { return nil, nil }
-func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error  { return nil }
+func (b *stubBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrder, error) {
+	return nil, nil
+}
+func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error { return nil }
 func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, error) {
 	return nil, nil
 }
