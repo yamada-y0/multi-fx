@@ -184,21 +184,19 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"  --close-position-id <PositionID>\n" +
 		"```\n\n" +
 		"### set-wakeup — 次回起動条件の設定\n\n" +
-		"複数回呼ぶとOR評価になる（どれか1つが満たされたら起動）。\n\n" +
+		"複数フラグを同時指定するとOR評価になる（どれか1つが満たされたら起動）。\n\n" +
 		"```bash\n" +
-		"# 指定時刻以降に起動\n" +
-		mfx + " set-wakeup --state-dir " + sd + " --after <RFC3339形式>\n\n" +
-		"# レートが価格以上になったら起動\n" +
-		mfx + " set-wakeup --state-dir " + sd + " --price-gte USDJPY:<価格>\n\n" +
-		"# レートが価格以下になったら起動\n" +
-		mfx + " set-wakeup --state-dir " + sd + " --price-lte USDJPY:<価格>\n" +
+		mfx + " set-wakeup --state-dir " + sd + " \\\n" +
+		"  [--after <RFC3339形式>] \\\n" +
+		"  [--price-gte USDJPY:<価格>] \\\n" +
+		"  [--price-lte USDJPY:<価格>] \\\n" +
+		"  [--any-fill]\n" +
 		"```\n\n" +
 		"**ポジション保有中の設定例（ロング、SL=141.0、TP=143.0）:**\n\n" +
 		"```bash\n" +
-		mfx + " set-wakeup --state-dir " + sd + " --price-lte USDJPY:141.0\n" +
-		mfx + " set-wakeup --state-dir " + sd + " --price-gte USDJPY:143.0\n" +
+		mfx + " set-wakeup --state-dir " + sd + " --price-lte USDJPY:141.0 --price-gte USDJPY:143.0\n" +
 		"```\n\n" +
-		"この2行でSL/TPどちらかに到達したとき起動。毎ティック起動は不要。\n\n" +
+		"SL/TPどちらかに到達したとき起動。毎ティック起動は不要。\n\n" +
 		"## 注意事項\n\n" +
 		"- StopLossは必ず指定すること（リスク管理上必須）\n" +
 		"- PositionIDはsnapshotのPositions[].IDから取得すること\n" +
@@ -440,8 +438,9 @@ func runSetWakeup(args []string) {
 	}
 
 	ctx := context.Background()
+	id := subPoolIDFromDir(*stateDir)
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(*stateDir, "wakeup.json"))
-	if err := wakeupStore.Save(ctx, subPoolIDFromDir(*stateDir), cond); err != nil {
+	if err := wakeupStore.Save(ctx, id, cond); err != nil {
 		log.Fatalf("save wakeup: %v", err)
 	}
 

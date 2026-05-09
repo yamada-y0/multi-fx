@@ -249,11 +249,12 @@ func (b *oandaBroker) openOrder(ctx context.Context, o pkgorder.Order) (OrderID,
 		Price string `json:"price"`
 	}
 	type orderBody struct {
-		Type        string        `json:"type"`
-		Instrument  string        `json:"instrument"`
-		Units       string        `json:"units"`
-		StopLossOn  stopLossOrder `json:"stopLossOnFill,omitempty"`
-		TakeProfitOn *limitOrder  `json:"takeProfitOnFill,omitempty"`
+		Type         string        `json:"type"`
+		Instrument   string        `json:"instrument"`
+		Units        string        `json:"units"`
+		Price        string        `json:"price,omitempty"`
+		StopLossOn   stopLossOrder `json:"stopLossOnFill,omitempty"`
+		TakeProfitOn *limitOrder   `json:"takeProfitOnFill,omitempty"`
 	}
 
 	body := orderBody{
@@ -263,10 +264,10 @@ func (b *oandaBroker) openOrder(ctx context.Context, o pkgorder.Order) (OrderID,
 	}
 	switch o.OrderType {
 	case pkgorder.OrderTypeLimit:
-		body.Type = "LIMIT_ORDER"
-		body.TakeProfitOn = &limitOrder{Price: o.LimitPrice.String()}
+		body.Type = "LIMIT"
+		body.Price = o.LimitPrice.String()
 	default:
-		body.Type = "MARKET_ORDER"
+		body.Type = "MARKET"
 	}
 
 	payload, err := json.Marshal(map[string]any{"order": body})
@@ -433,9 +434,9 @@ func (b *oandaBroker) FetchOrders(ctx context.Context) ([]pkgorder.PendingOrder,
 
 		var ot pkgorder.OrderType
 		switch o.Type {
-		case "LIMIT_ORDER":
+		case "LIMIT":
 			ot = pkgorder.OrderTypeLimit
-		case "STOP_ORDER":
+		case "STOP":
 			ot = pkgorder.OrderTypeStop
 		default:
 			ot = pkgorder.OrderTypeMarket
