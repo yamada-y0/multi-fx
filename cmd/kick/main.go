@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shopspring/decimal"
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
 	"github.com/yamada/fxd/internal/order"
@@ -22,8 +21,6 @@ import (
 	"github.com/yamada/fxd/internal/store"
 	"github.com/yamada/fxd/internal/tick"
 	"github.com/yamada/fxd/pkg/currency"
-	pkgmarket "github.com/yamada/fxd/pkg/market"
-	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
 func main() {
@@ -148,8 +145,12 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
-		// real モード: スタブ（RealApiBroker未実装）
-		return &stubBroker{pair: pair}, false, nil
+		// real モード: 環境変数から OANDA Broker を構築
+		b, err := setupOandaBroker()
+		if err != nil {
+			return nil, false, err
+		}
+		return b, false, nil
 	}
 
 	// historical モード
@@ -367,28 +368,16 @@ func resolveClaude() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// stubBroker は real モード用スタブ（RealApiBroker未実装の代替）
-type stubBroker struct {
-	pair currency.Pair
+// setupOandaBroker は環境変数から OANDA Broker を構築する
+func setupOandaBroker() (broker.Broker, error) {
+	token := os.Getenv("OANDA_API_TOKEN")
+	accountID := os.Getenv("OANDA_ACCOUNT_ID")
+	if token == "" {
+		return nil, fmt.Errorf("OANDA_API_TOKEN is not set")
+	}
+	if accountID == "" {
+		return nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
+	}
+	practice := os.Getenv("OANDA_PRACTICE") != "false"
+	return broker.NewOandaBroker(token, accountID, practice), nil
 }
-
-func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.OrderID, error) {
-	return broker.OrderID("stub-" + string(o.Pair)), nil
-}
-func (b *stubBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrder, error) {
-	return nil, nil
-}
-func (b *stubBroker) FetchFillEvents(_ context.Context, _ string) ([]pkgorder.FillEvent, error) {
-	return nil, nil
-}
-func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error { return nil }
-func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, error) {
-	return nil, nil
-}
-func (b *stubBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
-	return currency.Rate{Pair: pair, Bid: decimal.NewFromFloat(150.0), Ask: decimal.NewFromFloat(150.0)}, nil
-}
-func (b *stubBroker) FetchCandles(_ context.Context, _ currency.Pair, _ string, _ int) ([]pkgmarket.Candle, error) {
-	return nil, nil
-}
-func (b *stubBroker) Name() string { return "stub" }
