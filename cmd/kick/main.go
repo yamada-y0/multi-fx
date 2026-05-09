@@ -15,9 +15,6 @@ import (
 
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
-	"github.com/yamada/fxd/internal/order"
-	"github.com/yamada/fxd/internal/pool"
-	"github.com/yamada/fxd/internal/rule"
 	"github.com/yamada/fxd/internal/store"
 	"github.com/yamada/fxd/internal/tick"
 	"github.com/yamada/fxd/pkg/currency"
@@ -27,7 +24,7 @@ func main() {
 	stateDir := flag.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := flag.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := flag.String("pair", "USDJPY", "通貨ペア")
-	loop := flag.Bool("loop", false, "データ終端かフロアルール発動まで連続実行")
+	loop := flag.Bool("loop", false, "データ終端まで連続実行")
 	flag.Parse()
 
 	if *stateDir == "" {
@@ -47,23 +44,15 @@ func main() {
 	}
 }
 
-// runOnce は1ティック分の処理を実行する
-// done=true のとき呼び出し元はループを終了すべき
 func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	ctx := context.Background()
-	id := pool.SubPoolID(filepath.Base(stateDir))
 
 	st, err := store.NewJSONStore(stateDir)
 	if err != nil {
 		return false, fmt.Errorf("store: %v", err)
 	}
 
-	snap, err := st.LoadSubPool(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("subpool not found: %v", err)
-	}
-
-	// Broker構築・復元
+	// Broker構築
 	b, dataDone, err := setupBroker(stateDir, csvPath, pairStr)
 	if err != nil {
 		return false, fmt.Errorf("setup broker: %v", err)
@@ -79,16 +68,8 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 		return false, fmt.Errorf("fetch rate: %v", err)
 	}
 
-	// SubPool・Aggregator復元
-	sp := pool.RestoreSubPool(snap)
-	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
-	agg := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
-
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(stateDir, "wakeup.json"))
-	engine := rule.NewRuleEngine()
-	engine.Register(rule.FloorRule{ThresholdRatio: 0.75})
-
-	ticker := tick.New(agg, sp, wakeupStore, engine, st)
+	ticker := tick.New(b, wakeupStore, st)
 	result, err := ticker.Tick(ctx, rate)
 	if err != nil {
 		return false, fmt.Errorf("tick: %v", err)
@@ -102,11 +83,6 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 		}
 	}
 
-	if result.Done {
-		log.Printf("フロアルール発動 → 終了")
-		return true, nil
-	}
-
 	if !result.ShouldWakeup {
 		log.Printf("[%s] WakeupCondition未達 → スキップ", rate.Timestamp.Format("2006-01-02T15:04Z"))
 		return false, nil
@@ -114,21 +90,19 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 
 	log.Printf("[%s] Claude起動 (fills=%d)", rate.Timestamp.Format("2006-01-02T15:04Z"), result.FillCount)
 
-	sessionID, err := runClaude(stateDir, snap.SessionID)
+	prevSessionID, _ := st.LoadSessionID(ctx)
+	sessionID, err := runClaude(stateDir, prevSessionID)
 	if err != nil {
 		return false, fmt.Errorf("claude: %v", err)
 	}
 
-	// session_id をSubPoolに保存
-	if sessionID != "" && sessionID != snap.SessionID {
-		sp.SetSessionID(sessionID)
-		if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
-			return false, fmt.Errorf("save subpool: %v", err)
+	if sessionID != "" && sessionID != prevSessionID {
+		if err := st.SaveSessionID(ctx, sessionID); err != nil {
+			return false, fmt.Errorf("save session id: %v", err)
 		}
 		log.Printf("session_id 更新: %s", sessionID)
 	}
 
-	// 会話ログをMarkdownとしてstate-dir/logs/配下に保存
 	if sessionID != "" {
 		if err := saveSessionLog(stateDir, sessionID, rate.Timestamp); err != nil {
 			log.Printf("warn: save session log: %v", err)
@@ -138,14 +112,10 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	return false, nil
 }
 
-// setupBroker はモードに応じてBrokerを構築・復元する
-// historical モードでは broker_snapshot.json から復元して Advance() を1回呼ぶ
-// done=true のときデータ終端に達したことを示す
 func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error) {
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
-		// real モード: 環境変数から OANDA Broker を構築
 		b, err := setupOandaBroker()
 		if err != nil {
 			return nil, false, err
@@ -153,7 +123,6 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 		return b, false, nil
 	}
 
-	// historical モード
 	b, err := broker.NewHistoricalBroker(pair, csvPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("historical broker: %w", err)
@@ -166,7 +135,6 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 	}
 	b.Restore(snap)
 
-	// 1ティック進める
 	if !b.Advance() {
 		return nil, true, nil
 	}
@@ -174,18 +142,15 @@ func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error)
 	return b, false, nil
 }
 
-// runClaude は Claude Code を起動してセッションIDを返す
-// state-dir を --add-dir で渡すことで CLAUDE.md を参照可能にする
-// --system-prompt でFXエージェントとしての役割を確立し、プロジェクトのCLAUDE.mdより優先させる
 func runClaude(stateDir, prevSessionID string) (string, error) {
 	systemPrompt := "あなたはFX取引エージェントです。" +
 		stateDir + "/CLAUDE.md の行動手順・戦略方針・コマンドリファレンスに従って行動してください。"
 	prompt := "CLAUDE.mdの行動手順に従って行動してください。"
-	multiFXPath, err := resolveMultiFX()
+	fxdPath, err := resolveMultiFX()
 	if err != nil {
 		return "", fmt.Errorf("fxd not found: %w", err)
 	}
-	allowedTool := fmt.Sprintf("Bash(%s *)", multiFXPath)
+	allowedTool := fmt.Sprintf("Bash(%s *)", fxdPath)
 
 	args := []string{
 		"-p", prompt,
@@ -222,14 +187,11 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	return result.SessionID, nil
 }
 
-// saveSessionLog はClaudeのjsonlセッションログをMarkdownに変換してstate-dir/logs/に保存する
 func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home dir: %w", err)
 	}
-
-	// Claude のセッションログはカレントディレクトリに紐づく
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getwd: %w", err)
@@ -239,13 +201,12 @@ func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
 
 	data, err := os.ReadFile(jsonlPath)
 	if os.IsNotExist(err) {
-		return nil // ログがない場合はスキップ
+		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read jsonl: %w", err)
 	}
 
-	// jsonlをMarkdownに変換
 	md := formatSessionLog(sessionID, tickTime, data)
 
 	logsDir := filepath.Join(stateDir, "logs")
@@ -254,11 +215,9 @@ func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
 	}
 
 	filename := fmt.Sprintf("%s_%s.md", tickTime.UTC().Format("2006-01-02T15-04-05Z"), sessionID[:8])
-	outPath := filepath.Join(logsDir, filename)
-	return os.WriteFile(outPath, []byte(md), 0644)
+	return os.WriteFile(filepath.Join(logsDir, filename), []byte(md), 0644)
 }
 
-// formatSessionLog はjsonlバイト列をMarkdown文字列に変換する
 func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# セッションログ\n\n")
@@ -293,7 +252,6 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 			role = "**Assistant**"
 		}
 
-		// contentはstring or []contentBlock
 		var text string
 		switch v := msg.Message.Content.(type) {
 		case string:
@@ -340,8 +298,6 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 	return sb.String()
 }
 
-// resolveMultiFX は fxd コマンドのフルパスを返す
-// kick バイナリと同じディレクトリを優先し、なければ PATH から探す
 func resolveMultiFX() (string, error) {
 	if exe, err := os.Executable(); err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "fxd")
@@ -355,8 +311,6 @@ func resolveMultiFX() (string, error) {
 	return "", fmt.Errorf("fxd not found in same directory as kick or PATH")
 }
 
-// resolveClaude は claude コマンドのフルパスを返す
-// exec.LookPath で見つからない場合は `sh -c 'which claude'` にフォールバックする
 func resolveClaude() (string, error) {
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p, nil
@@ -368,7 +322,6 @@ func resolveClaude() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// setupOandaBroker は環境変数から OANDA Broker を構築する
 func setupOandaBroker() (broker.Broker, error) {
 	token := os.Getenv("OANDA_API_TOKEN")
 	accountID := os.Getenv("OANDA_ACCOUNT_ID")

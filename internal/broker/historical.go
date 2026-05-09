@@ -279,6 +279,10 @@ func (b *historicalBroker) FetchCandles(_ context.Context, pair currency.Pair, _
 	return result, nil
 }
 
+func (b *historicalBroker) FetchAccount(_ context.Context) (pkgorder.AccountInfo, error) {
+	return pkgorder.AccountInfo{}, nil
+}
+
 func (b *historicalBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	if pair != b.pair {
 		return currency.Rate{}, fmt.Errorf("broker: unsupported pair: %s", pair)

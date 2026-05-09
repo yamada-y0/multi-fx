@@ -31,6 +31,9 @@ type Broker interface {
 	// sinceID="" のとき全件を返す。返された最後のイベントのIDを次回の sinceID として使う。
 	FetchFillEvents(ctx context.Context, sinceID string) ([]pkgorder.FillEvent, error)
 
+	// FetchAccount は口座残高・証拠金情報を返す
+	FetchAccount(ctx context.Context) (pkgorder.AccountInfo, error)
+
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
 

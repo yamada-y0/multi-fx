@@ -7,12 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"github.com/yamada/fxd/internal/pool"
 )
 
 // JSONStore は StateStore のJSONファイルベース実装
-// プロセス間で状態を共有するためのローカル永続化層
 type JSONStore struct {
 	dir string
 	mu  sync.Mutex
@@ -25,64 +22,8 @@ func NewJSONStore(dir string) (*JSONStore, error) {
 	return &JSONStore{dir: dir}, nil
 }
 
-func (s *JSONStore) subPoolsPath() string        { return filepath.Join(s.dir, "subpools.json") }
-func (s *JSONStore) fillsPath() string           { return filepath.Join(s.dir, "fills.json") }
-func (s *JSONStore) masterBalancePath() string   { return filepath.Join(s.dir, "master_balance.json") }
 func (s *JSONStore) lastFillEventIDPath() string { return filepath.Join(s.dir, "last_fill_event_id.json") }
-
-func (s *JSONStore) SaveSubPool(_ context.Context, snap pool.SubPoolSnapshot) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, err := s.loadSubPools()
-	if err != nil {
-		return err
-	}
-	m[snap.ID] = snap
-	return s.writeJSON(s.subPoolsPath(), m)
-}
-
-func (s *JSONStore) LoadSubPool(_ context.Context, id pool.SubPoolID) (pool.SubPoolSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, err := s.loadSubPools()
-	if err != nil {
-		return pool.SubPoolSnapshot{}, err
-	}
-	snap, ok := m[id]
-	if !ok {
-		return pool.SubPoolSnapshot{}, fmt.Errorf("store: subpool not found: %s", id)
-	}
-	return snap, nil
-}
-
-
-func (s *JSONStore) SaveFill(_ context.Context, fill pool.Fill) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	fills, err := s.loadFills()
-	if err != nil {
-		return err
-	}
-	fills = append(fills, fill)
-	return s.writeJSON(s.fillsPath(), fills)
-}
-
-func (s *JSONStore) ListFills(_ context.Context, subPoolID pool.SubPoolID) ([]pool.Fill, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	fills, err := s.loadFills()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]pool.Fill, 0)
-	for _, f := range fills {
-		if f.SubPoolID == subPoolID {
-			result = append(result, f)
-		}
-	}
-	return result, nil
-}
-
+func (s *JSONStore) sessionIDPath() string       { return filepath.Join(s.dir, "session_id.json") }
 
 func (s *JSONStore) SaveLastFillEventID(_ context.Context, id string) error {
 	s.mu.Lock()
@@ -100,26 +41,26 @@ func (s *JSONStore) LoadLastFillEventID(_ context.Context) (string, error) {
 	return id, nil
 }
 
-func (s *JSONStore) loadSubPools() (map[pool.SubPoolID]pool.SubPoolSnapshot, error) {
-	m := make(map[pool.SubPoolID]pool.SubPoolSnapshot)
-	if err := s.readJSON(s.subPoolsPath(), &m); err != nil {
-		return nil, err
-	}
-	return m, nil
+func (s *JSONStore) SaveSessionID(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.writeJSON(s.sessionIDPath(), id)
 }
 
-func (s *JSONStore) loadFills() ([]pool.Fill, error) {
-	var fills []pool.Fill
-	if err := s.readJSON(s.fillsPath(), &fills); err != nil {
-		return nil, err
+func (s *JSONStore) LoadSessionID(_ context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var id string
+	if err := s.readJSON(s.sessionIDPath(), &id); err != nil {
+		return "", err
 	}
-	return fills, nil
+	return id, nil
 }
 
 func (s *JSONStore) readJSON(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil // ファイルがなければゼロ値のまま
+		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("json store: read %s: %w", path, err)
@@ -135,7 +76,6 @@ func (s *JSONStore) writeJSON(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("json store: marshal %s: %w", path, err)
 	}
-	// tempファイルに書いてからrenameすることでアトミックな書き込みを保証する
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return fmt.Errorf("json store: write tmp %s: %w", path, err)

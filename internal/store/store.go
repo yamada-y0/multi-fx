@@ -1,23 +1,15 @@
 package store
 
-import (
-	"context"
+import "context"
 
-	"github.com/yamada/fxd/internal/pool"
-)
-
-// StateStore は SubPool・Fill の状態を永続化する抽象
+// StateStore はエージェント状態を永続化する抽象
 // 本番: JSON実装（json.go）、テスト: インメモリ実装（memory.go）
 type StateStore interface {
-	// SubPool の永続化
-	SaveSubPool(ctx context.Context, snap pool.SubPoolSnapshot) error
-	LoadSubPool(ctx context.Context, id pool.SubPoolID) (pool.SubPoolSnapshot, error)
-
-	// Fill 履歴の永続化
-	SaveFill(ctx context.Context, fill pool.Fill) error
-	ListFills(ctx context.Context, subPoolID pool.SubPoolID) ([]pool.Fill, error)
-
-	// FetchFillEvents の sinceID 永続化（グローバルに1つ）
+	// FetchFillEvents の sinceID 永続化（ブローカーごとに1つ）
 	SaveLastFillEventID(ctx context.Context, id string) error
 	LoadLastFillEventID(ctx context.Context) (string, error)
+
+	// セッションID永続化（Claude Code のセッション継続用）
+	SaveSessionID(ctx context.Context, id string) error
+	LoadSessionID(ctx context.Context) (string, error)
 }

@@ -114,6 +114,46 @@ func toInstrument(pair currency.Pair) string {
 	return s
 }
 
+// --- FetchAccount ---
+
+func (b *oandaBroker) FetchAccount(ctx context.Context) (pkgorder.AccountInfo, error) {
+	path := "/v3/accounts/" + b.accountID + "/summary"
+	resp, err := b.get(ctx, path, nil)
+	if err != nil {
+		return pkgorder.AccountInfo{}, fmt.Errorf("oanda: fetch account: %w", err)
+	}
+	data, err := readBody(resp)
+	if err != nil {
+		return pkgorder.AccountInfo{}, err
+	}
+	if err := checkStatus(resp, data, http.StatusOK); err != nil {
+		return pkgorder.AccountInfo{}, err
+	}
+
+	var result struct {
+		Account struct {
+			Balance            string `json:"balance"`
+			UnrealizedPL       string `json:"unrealizedPL"`
+			MarginUsed         string `json:"marginUsed"`
+			MarginAvailable    string `json:"marginAvailable"`
+		} `json:"account"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return pkgorder.AccountInfo{}, fmt.Errorf("oanda: parse account: %w", err)
+	}
+	a := result.Account
+	balance, _ := decimal.NewFromString(a.Balance)
+	unrealized, _ := decimal.NewFromString(a.UnrealizedPL)
+	marginUsed, _ := decimal.NewFromString(a.MarginUsed)
+	marginAvail, _ := decimal.NewFromString(a.MarginAvailable)
+	return pkgorder.AccountInfo{
+		Balance:       balance,
+		UnrealizedPnL: unrealized,
+		MarginUsed:    marginUsed,
+		MarginAvail:   marginAvail,
+	}, nil
+}
+
 // --- FetchRate ---
 
 func (b *oandaBroker) FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error) {

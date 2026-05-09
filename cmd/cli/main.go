@@ -12,12 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
-	"github.com/yamada/fxd/internal/order"
-	"github.com/yamada/fxd/internal/pool"
 	"github.com/yamada/fxd/internal/store"
 	"github.com/yamada/fxd/pkg/currency"
 	pkgmarket "github.com/yamada/fxd/pkg/market"
@@ -27,7 +24,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: fxd <command> [options]")
-		fmt.Fprintln(os.Stderr, "Commands: snapshot, submit-order, set-wakeup, market, init-subpool")
+		fmt.Fprintln(os.Stderr, "Commands: snapshot, submit-order, set-wakeup, market, init-agent")
 		os.Exit(1)
 	}
 
@@ -40,74 +37,64 @@ func main() {
 		runSetWakeup(os.Args[2:])
 	case "market":
 		runMarket(os.Args[2:])
-	case "init-subpool":
-		runInitSubPool(os.Args[2:])
+	case "init-agent":
+		runInitAgent(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
 	}
 }
 
-// subPoolIDFromDir はstate-dirのベース名をSubPoolIDとして返す
-func subPoolIDFromDir(stateDir string) pool.SubPoolID {
-	return pool.SubPoolID(filepath.Base(stateDir))
-}
-
+// snapshot はOANDAから直接口座情報・ポジション・注文を取得して出力する
 func runSnapshot(args []string) {
 	fs := flag.NewFlagSet("snapshot", flag.ExitOnError)
 	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
+	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	fs.Parse(args)
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: fxd snapshot --state-dir <dir>")
+		fmt.Fprintln(os.Stderr, "Usage: fxd snapshot --state-dir <dir> [--pair <pair>]")
 		os.Exit(1)
 	}
 
 	ctx := context.Background()
-	st, err := store.NewJSONStore(*stateDir)
+	b, _, err := setupBroker(*stateDir, "", currency.Pair(*pair))
 	if err != nil {
-		log.Fatalf("store: %v", err)
+		log.Fatalf("setup broker: %v", err)
 	}
 
-	snap, err := st.LoadSubPool(ctx, subPoolIDFromDir(*stateDir))
+	account, err := b.FetchAccount(ctx)
 	if err != nil {
-		log.Fatalf("load subpool: %v", err)
+		log.Fatalf("fetch account: %v", err)
+	}
+	positions, err := b.FetchPositions(ctx)
+	if err != nil {
+		log.Fatalf("fetch positions: %v", err)
+	}
+	orders, err := b.FetchOrders(ctx)
+	if err != nil {
+		log.Fatalf("fetch orders: %v", err)
 	}
 
-	printJSON(snap)
+	type snapshotOutput struct {
+		Account   pkgorder.AccountInfo    `json:"Account"`
+		Positions []pkgorder.Position     `json:"Positions"`
+		Orders    []pkgorder.PendingOrder `json:"Orders"`
+	}
+	printJSON(snapshotOutput{Account: account, Positions: positions, Orders: orders})
 }
 
-func runInitSubPool(args []string) {
-	fs := flag.NewFlagSet("init-subpool", flag.ExitOnError)
+func runInitAgent(args []string) {
+	fs := flag.NewFlagSet("init-agent", flag.ExitOnError)
 	cwd, _ := os.Getwd()
 	baseDir := fs.String("base-dir", filepath.Join(cwd, "agents"), "エージェントを配置するベースディレクトリ")
-	balance := fs.Float64("balance", 0, "初期残高（必須）")
-	strategyName := fs.String("strategy", "", "戦略名")
 	fs.Parse(args)
 
-	if *balance == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: fxd init-subpool --balance <amount> [--base-dir <dir>] [--strategy <name>]")
-		os.Exit(1)
-	}
-
-	id := uuid.New().String()
-	stateDir := filepath.Join(*baseDir, id)
+	stateDir := filepath.Join(*baseDir, fmt.Sprintf("agent-%d", time.Now().Unix()))
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		log.Fatalf("mkdir: %v", err)
 	}
 
-	ctx := context.Background()
-	st, err := store.NewJSONStore(stateDir)
-	if err != nil {
-		log.Fatalf("store: %v", err)
-	}
-
-	sp := pool.NewSubPool(pool.SubPoolID(id), decimal.NewFromFloat(*balance), *strategyName, time.Now())
-	if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
-		log.Fatalf("save subpool: %v", err)
-	}
-
-	// CLAUDE.md を生成する（fxdバイナリのパスを埋め込む）
 	mfxPath, err := resolveMultiFXPath()
 	if err != nil {
 		log.Fatalf("fxd path: %v", err)
@@ -118,10 +105,9 @@ func runInitSubPool(args []string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "エージェントを作成しました: %s\n%s の戦略方針を記入してください。\n", stateDir, claudeMDPath)
-	printJSON(sp.Snapshot())
+	printJSON(map[string]string{"state_dir": stateDir})
 }
 
-// resolveMultiFXPath は自分自身（fxdバイナリ）のフルパスを返す
 func resolveMultiFXPath() (string, error) {
 	if exe, err := os.Executable(); err == nil {
 		return exe, nil
@@ -264,9 +250,6 @@ func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (brok
 	return b, nil
 }
 
-// setupBroker はモードに応じて Broker を構築する。
-// csvPath が指定された場合は HistoricalBroker、なければ環境変数から OandaBroker を構築する。
-// hb は historical モード時のみ非 nil。
 func setupBroker(stateDir, csvPath string, pair currency.Pair) (broker.Broker, broker.HistoricalBroker, error) {
 	if csvPath != "" {
 		hb, err := restoreHistoricalBroker(stateDir, csvPath, pair)
@@ -282,7 +265,6 @@ func setupBroker(stateDir, csvPath string, pair currency.Pair) (broker.Broker, b
 	return b, nil, nil
 }
 
-// setupOandaBroker は環境変数から OANDA Broker を構築する
 func setupOandaBroker() (broker.Broker, error) {
 	token := os.Getenv("OANDA_API_TOKEN")
 	accountID := os.Getenv("OANDA_ACCOUNT_ID")
@@ -315,26 +297,12 @@ func runSubmitOrder(args []string) {
 	}
 
 	ctx := context.Background()
-	id := subPoolIDFromDir(*stateDir)
+	pairVal := currency.Pair(*pair)
 
-	st, err := store.NewJSONStore(*stateDir)
-	if err != nil {
-		log.Fatalf("store: %v", err)
-	}
-
-	snap, err := st.LoadSubPool(ctx, id)
-	if err != nil {
-		log.Fatalf("load subpool: %v", err)
-	}
-	sp := pool.RestoreSubPool(snap)
-	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
-
-	b, hb, err := setupBroker(*stateDir, *csvPath, currency.Pair(*pair))
+	b, hb, err := setupBroker(*stateDir, *csvPath, pairVal)
 	if err != nil {
 		log.Fatalf("setup broker: %v", err)
 	}
-
-	agg := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
 
 	var orderSide pkgorder.Side
 	switch strings.ToLower(*side) {
@@ -354,35 +322,28 @@ func runSubmitOrder(args []string) {
 		ot = pkgorder.OrderTypeMarket
 	}
 
-	intent := pool.OrderIntentOpen
+	intent := pkgorder.OrderIntentOpen
 	if *closePositionID != "" {
-		intent = pool.OrderIntentClose
+		intent = pkgorder.OrderIntentClose
 	}
 
-	req := pool.OrderRequest{
-		SubPoolID:       id,
-		Pair:            currency.Pair(*pair),
+	o := pkgorder.Order{
+		Pair:            pairVal,
 		Side:            orderSide,
-		Lots:            decimal.NewFromFloat(*lots),
+		Lots:            mustDecimal(*lots),
 		OrderType:       ot,
-		OrderIntent:     intent,
-		StopLoss:        decimal.NewFromFloat(*stopLoss),
-		LimitPrice:      decimal.NewFromFloat(*limitPrice),
+		Intent:          intent,
+		StopLoss:        mustDecimal(*stopLoss),
+		LimitPrice:      mustDecimal(*limitPrice),
 		ClosePositionID: *closePositionID,
-		RequestedAt:     time.Now(),
 	}
 
-	if err := agg.SubmitOrder(ctx, req); err != nil {
+	orderID, err := b.SubmitOrder(ctx, o)
+	if err != nil {
 		log.Fatalf("submit order: %v", err)
 	}
-	if err := agg.SyncFills(ctx); err != nil {
-		log.Fatalf("sync fills: %v", err)
-	}
 
-	if err := st.SaveSubPool(ctx, sp.Snapshot()); err != nil {
-		log.Fatalf("save subpool: %v", err)
-	}
-
+	// Brokerスナップショット保存（historicalモード）
 	if hb != nil {
 		snapPath := filepath.Join(*stateDir, "broker_snapshot.json")
 		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
@@ -390,7 +351,23 @@ func runSubmitOrder(args []string) {
 		}
 	}
 
-	printJSON(sp.Snapshot())
+	// lastFillEventIDを更新（約定済みの場合）
+	st, err := store.NewJSONStore(*stateDir)
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+	lastID, _ := st.LoadLastFillEventID(ctx)
+	events, err := b.FetchFillEvents(ctx, lastID)
+	if err != nil {
+		log.Fatalf("fetch fill events: %v", err)
+	}
+	if len(events) > 0 {
+		if err := st.SaveLastFillEventID(ctx, events[len(events)-1].ID); err != nil {
+			log.Fatalf("save last fill event id: %v", err)
+		}
+	}
+
+	printJSON(map[string]string{"order_id": string(orderID)})
 }
 
 func runSetWakeup(args []string) {
@@ -416,7 +393,6 @@ func runSetWakeup(args []string) {
 		}
 		cond.After = &t
 	}
-
 	if *priceGTE != "" {
 		pair, price, err := parsePairPrice(*priceGTE)
 		if err != nil {
@@ -424,7 +400,6 @@ func runSetWakeup(args []string) {
 		}
 		cond.PriceGTE = map[currency.Pair]decimal.Decimal{pair: price}
 	}
-
 	if *priceLTE != "" {
 		pair, price, err := parsePairPrice(*priceLTE)
 		if err != nil {
@@ -438,9 +413,8 @@ func runSetWakeup(args []string) {
 	}
 
 	ctx := context.Background()
-	id := subPoolIDFromDir(*stateDir)
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(*stateDir, "wakeup.json"))
-	if err := wakeupStore.Save(ctx, id, cond); err != nil {
+	if err := wakeupStore.Save(ctx, cond); err != nil {
 		log.Fatalf("save wakeup: %v", err)
 	}
 
@@ -459,6 +433,10 @@ func parsePairPrice(s string) (currency.Pair, decimal.Decimal, error) {
 	return currency.Pair(parts[0]), price, nil
 }
 
+func mustDecimal(f float64) decimal.Decimal {
+	return decimal.NewFromFloat(f)
+}
+
 func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -466,4 +444,3 @@ func printJSON(v any) {
 		log.Fatalf("json encode: %v", err)
 	}
 }
-

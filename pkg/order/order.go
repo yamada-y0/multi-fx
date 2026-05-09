@@ -65,15 +65,12 @@ type FillEvent struct {
 	FilledAt    time.Time
 }
 
-// Fill はブローカーからの約定通知
-type Fill struct {
-	OrderID     string
-	PositionID  string // 新規建て時にBrokerが払い出すPositionID
-	Pair        currency.Pair
-	Side        Side
-	Lots        decimal.Decimal
-	FilledPrice decimal.Decimal
-	FilledAt    time.Time
+// AccountInfo は口座の残高・証拠金情報
+type AccountInfo struct {
+	Balance       decimal.Decimal // 口座残高
+	UnrealizedPnL decimal.Decimal // 未実現損益
+	MarginUsed    decimal.Decimal // 使用証拠金
+	MarginAvail   decimal.Decimal // 利用可能証拠金
 }
 
 // Position はブローカーが保持するポジション
