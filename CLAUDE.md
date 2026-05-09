@@ -18,9 +18,8 @@ go vet ./...
 
 ## このプロジェクトで守ること
 
-- LLM 呼び出しは `internal/commander/` だけに置く
-- `rule.FloorRule` の条件は緩めない
-- `pool.ValidateTransition` をバイパスしない
-- `OrderRequest.StopLoss` はゼロ値で渡さない
+- `Order.StopLoss` はゼロ値で渡さない
+- `internal/broker` は他の `internal/` パッケージに依存しない
+- ポジション・残高はOANDAから直接取得する（ローカル台帳を持たない）
 
 詳細は [AGENTS.md](./AGENTS.md) を参照。

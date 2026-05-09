@@ -2,25 +2,26 @@
 
 AIエージェントを組み込んだFX自動取引システムの技術検証プロジェクト。
 
-Claude Codeをトレーディングエージェントとして組み込み、定期キック型アーキテクチャでバックテストを実行する。
-複数のエージェント（SubPool）を並走させ、「フロアルール（初期割り当てを下回ったら強制停止）」を全体の安全装置とする。
+Claude Codeをトレーディングエージェントとして組み込み、定期キック型アーキテクチャで取引判断を行う。
+OANDA REST API v20 を使ったリアル取引と、Dukascopy CSV を使ったヒストリカルバックテストの両方に対応する。
 
 ## アーキテクチャ概要
 
 ```
 cron（ローカル or CI）
   ↓ 定期キック
-cmd/kick（WakeupCondition判定 → Claudeを起動）
+cmd/kick（FetchFillEvents同期 → WakeupCondition判定 → Claudeを起動）
   ↓ --allowedTools "Bash(fxd *)"
 Claude Code（FXエージェントとして動作）
   ↓ Bashツール経由でサブコマンドを呼び出す
 cmd/cli（fxd）
-  ├── snapshot  — 口座状態の確認
-  ├── market    — 市場データの取得
+  ├── snapshot     — 口座状態の確認（OANDA直接参照）
+  ├── market       — 市場データの取得
   ├── submit-order — 発注・決済
-  └── set-wakeup   — 次回起動条件の設定
+  ├── set-wakeup   — 次回起動条件の設定
+  └── init-agent   — エージェントディレクトリの初期化
   ↓
-internal/（SubPool・Broker・Store・RuleEngine）
+internal/broker（OANDA API / HistoricalBroker）
 ```
 
 ### 実行モデル
@@ -28,9 +29,9 @@ internal/（SubPool・Broker・Store・RuleEngine）
 常駐型ではなく**定期キック型**。
 
 1. `kick` が起動する
-2. HistoricalBrokerを1ティック進める（`broker_snapshot.json`から復元 → `Advance()`）
+2. Broker を構築（OANDAモード or HistoricalBroker）
 3. レートを取得し、`internal/tick.Ticker.Tick()` で1ティック分の処理を実行
-   - OnRate（含み損益更新） → SyncFills（約定判定） → フロアルール評価 → WakeupCondition評価 → SubPool保存
+   - FetchFillEvents（約定同期 + lastFillEventID更新） → WakeupCondition評価
 4. WakeupConditionが達成されていれば `claude -p` を起動
 5. Claude（FXエージェント）が `fxd` サブコマンドを使って判断・発注・WakeupCondition設定
 6. Claude終了後、セッションログをMarkdownとして `state-dir/logs/` に保存
@@ -44,62 +45,60 @@ fxd/
 │   └── cli/               # CLIサブコマンド群（Claude Codeが使用）
 ├── internal/
 │   ├── tick/              # 1ティック分の処理サイクル
-│   ├── pool/              # SubPool・ライフサイクル FSM の型定義と実装
 │   ├── agent/             # WakeupCondition・WakeupStore
-│   ├── order/             # Aggregator（変換・中継）・PositionIDMapper
-│   ├── broker/            # Broker抽象・HistoricalBroker実装
-│   ├── rule/              # フロアルールなど決定論的強制アクション
-│   └── store/             # 状態永続化（JSONStore実装済み）
+│   ├── broker/            # Broker抽象・HistoricalBroker・OandaBroker実装
+│   └── store/             # 状態永続化（lastFillEventID・sessionID）
 └── pkg/
     ├── currency/          # 通貨ペア・レート型
     ├── market/            # Candle（足データ）
-    ├── order/             # Order・Fill・Position・OrderType（Broker向け汎用型）
+    ├── order/             # Order・FillEvent・Position・AccountInfo（Broker向け汎用型）
     └── clock/             # 時刻抽象（テスト差し替え用）
 ```
 
-## エージェントの管理
+## セットアップ
 
-エージェントはUUIDベースのディレクトリで管理される。
+### 環境変数
 
+OANDA デモ口座の認証情報を `~/.fxd/practice.env` に記述する:
+
+```bash
+# ~/.fxd/practice.env (chmod 600)
+OANDA_API_TOKEN=your-token
+OANDA_ACCOUNT_ID=your-account-id
+OANDA_PRACTICE=true
 ```
-~/.fxd/agents/
-└── <uuid>/
-    ├── subpool.json          # SubPoolの状態
-    ├── broker_snapshot.json  # HistoricalBrokerの状態（cursor + PendingOrders）
-    ├── wakeup.json           # 次回起動条件
-    ├── CLAUDE.md             # 戦略方針・コマンドリファレンス（Claudeに渡す）
-    └── logs/
-        └── <timestamp>_<session>.md  # Claudeのセッションログ（Markdown）
-```
+
+本番口座は `~/.fxd/live.env` を別途作成し、`OANDA_PRACTICE=false` にする。
 
 ### エージェントの作成
 
 ```bash
-fxd init-subpool --base-dir ~/.fxd/agents --balance 1000000
+fxd init-agent --base-dir ./agents
 ```
 
-生成されたディレクトリの `CLAUDE.md` に戦略方針とコマンドパスを記入する。
-
-### バックテストの実行（1ティック）
-
-```bash
-kick \
-  --state-dir ~/.fxd/agents/<uuid> \
-  --data ./testdata/USDJPY_2024_h1.csv \
-  --pair USDJPY
-```
+生成されたディレクトリの `CLAUDE.md` に戦略方針を記入する。
 
 ## CLIサブコマンドリファレンス
 
 ### snapshot — 口座状態の確認
 
+OANDAから直接残高・ポジション・注文を取得する。
+
 ```bash
-fxd snapshot --state-dir <state-dir>
+fxd snapshot --state-dir <state-dir> [--pair USDJPY]
 ```
 
 ### market — 市場データの取得（新しい順）
 
 ```bash
+# OANDAモード
+. ~/.fxd/practice.env && fxd market \
+  --state-dir <state-dir> \
+  --pair USDJPY \
+  --n 20 \
+  --granularity M1
+
+# historicalモード（CSV）
 fxd market \
   --state-dir <state-dir> \
   --data <csv-path> \
@@ -107,15 +106,12 @@ fxd market \
   --n 20
 ```
 
-HistoricalBrokerの現在位置から過去N本のローソク足を返す（インデックス0が最新）。
-
 ### submit-order — 発注・決済
 
 ```bash
 # 新規発注
 fxd submit-order \
   --state-dir <state-dir> \
-  --data <csv-path> \
   --pair USDJPY \
   --side <long|short> \
   --lots <ロット数> \
@@ -125,7 +121,6 @@ fxd submit-order \
 # 決済
 fxd submit-order \
   --state-dir <state-dir> \
-  --data <csv-path> \
   --pair USDJPY \
   --side <long|short> \
   --lots <ロット数> \
@@ -135,18 +130,40 @@ fxd submit-order \
 
 ### set-wakeup — 次回起動条件の設定（OR評価）
 
+複数フラグを同時指定するとOR評価になる。
+
 ```bash
-# 指定時刻以降
-fxd set-wakeup --state-dir <state-dir> --after <RFC3339>
+fxd set-wakeup --state-dir <state-dir> \
+  [--after <RFC3339>] \
+  [--price-gte USDJPY:150.0] \
+  [--price-lte USDJPY:148.0] \
+  [--any-fill]
+```
 
-# レートが価格以上
-fxd set-wakeup --state-dir <state-dir> --price-gte USDJPY:150.0
+## kick — 定期キック
 
-# レートが価格以下
-fxd set-wakeup --state-dir <state-dir> --price-lte USDJPY:148.0
+```bash
+# OANDAモード
+. ~/.fxd/practice.env && kick --state-dir <state-dir> --pair USDJPY
 
-# 未約定注文が約定したら
-fxd set-wakeup --state-dir <state-dir> --any-fill
+# historicalモード（1ティック）
+kick --state-dir <state-dir> --data <csv-path> --pair USDJPY
+
+# historicalモード（データ終端まで連続実行）
+kick --state-dir <state-dir> --data <csv-path> --pair USDJPY --loop
+```
+
+## エージェントのstate-dir構成
+
+```
+<state-dir>/
+├── CLAUDE.md                        # 戦略方針・コマンドリファレンス（Claudeに渡す）
+├── wakeup.json                      # 次回起動条件
+├── last_fill_event_id.json          # FetchFillEvents の sinceID カーソル
+├── session_id.json                  # Claude Code のセッション継続用ID
+├── broker_snapshot.json             # HistoricalBroker の状態（historicalモードのみ）
+└── logs/
+    └── <timestamp>_<session>.md     # Claudeのセッションログ（Markdown）
 ```
 
 ## 開発
@@ -166,13 +183,6 @@ go build -o /tmp/kick ./cmd/kick
 
 ## 設計上の制約
 
-- **フロアルール**: `EquityBalance < InitialBalance` で SubPool を強制停止。`rule.FloorRule` の条件は緩めない
-- **ライフサイクル一方向**: Active → Suspended → Terminated のみ。`pool.ValidateTransition` をバイパスしない
-- **StopLoss必須**: `OrderRequest.StopLoss` はゼロ値で渡さない
-- **Broker独立**: `broker` パッケージは `pool` に依存しない。変換は Aggregator が担う
-- **HistoricalBrokerSnapshot**: cursorとPendingOrdersをまとめてJSONで永続化し、プロセス間でBroker状態を共有する
-
-## 未実装
-
-- `internal/broker/realapi.go` — 本番ブローカーAPI接続
-- cronによる自動定期実行
+- **StopLoss必須**: `Order.StopLoss` はゼロ値で発注するコードを書かない
+- **Broker独立**: `internal/broker` は他の `internal/` パッケージに依存しない
+- **単一口座前提**: SubPool等の仮想分割は行わない。OANDA口座を直接参照する
