@@ -218,22 +218,25 @@ func runMarket(args []string) {
 		log.Fatalf("fetch candles: %v", err)
 	}
 
+	rate, err := b.FetchRate(ctx, pairVal)
+	if err != nil {
+		log.Fatalf("fetch rate: %v", err)
+	}
+
 	var currentTime time.Time
 	if hb != nil {
 		currentTime = hb.CurrentTime()
 	} else {
-		rate, err := b.FetchRate(ctx, pairVal)
-		if err != nil {
-			log.Fatalf("fetch rate: %v", err)
-		}
 		currentTime = rate.Timestamp
 	}
 
 	type marketOutput struct {
 		CurrentTime time.Time          `json:"CurrentTime"`
+		Bid         decimal.Decimal    `json:"Bid"`
+		Ask         decimal.Decimal    `json:"Ask"`
 		Candles     []pkgmarket.Candle `json:"Candles"`
 	}
-	printJSON(marketOutput{CurrentTime: currentTime, Candles: candles})
+	printJSON(marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles})
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
