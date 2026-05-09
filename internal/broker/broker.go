@@ -34,6 +34,10 @@ type Broker interface {
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
 
+	// FetchCandles は指定ペア・granularity で直近 count 本のローソク足を新しい順で返す
+	// granularity は "M1"/"M5"/"H1" 等（OANDA形式）
+	FetchCandles(ctx context.Context, pair currency.Pair, granularity string, count int) ([]market.Candle, error)
+
 	// Name はブローカー識別子（ログ・メトリクス用）
 	Name() string
 }
@@ -49,9 +53,6 @@ type HistoricalBroker interface {
 
 	// CurrentTime は現在再生中の時刻を返す
 	CurrentTime() time.Time
-
-	// FetchCandles は現在ティックから遡って最大 n 本の足データを返す（新しい順）
-	FetchCandles(pair currency.Pair, n int) ([]market.Candle, error)
 
 	// Snapshot は現在の状態をスナップショットとして返す
 	Snapshot() HistoricalBrokerSnapshot

@@ -242,7 +242,7 @@ func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle,
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	candles, err := b.FetchCandles(pair, n)
+	candles, err := b.FetchCandles(context.Background(), pair, "", n)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -461,5 +461,8 @@ func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, err
 }
 func (b *stubBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	return currency.Rate{Pair: pair, Bid: decimal.NewFromFloat(150.0), Ask: decimal.NewFromFloat(150.0)}, nil
+}
+func (b *stubBroker) FetchCandles(_ context.Context, pair currency.Pair, _ string, _ int) ([]pkgmarket.Candle, error) {
+	return nil, nil
 }
 func (b *stubBroker) Name() string { return "stub" }

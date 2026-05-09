@@ -22,6 +22,7 @@ import (
 	"github.com/yamada/fxd/internal/store"
 	"github.com/yamada/fxd/internal/tick"
 	"github.com/yamada/fxd/pkg/currency"
+	pkgmarket "github.com/yamada/fxd/pkg/market"
 	pkgorder "github.com/yamada/fxd/pkg/order"
 )
 
@@ -386,5 +387,8 @@ func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, err
 }
 func (b *stubBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	return currency.Rate{Pair: pair, Bid: decimal.NewFromFloat(150.0), Ask: decimal.NewFromFloat(150.0)}, nil
+}
+func (b *stubBroker) FetchCandles(_ context.Context, _ currency.Pair, _ string, _ int) ([]pkgmarket.Candle, error) {
+	return nil, nil
 }
 func (b *stubBroker) Name() string { return "stub" }

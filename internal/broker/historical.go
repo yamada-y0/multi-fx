@@ -261,11 +261,13 @@ func (b *historicalBroker) FetchPositions(_ context.Context) ([]pkgorder.Positio
 	return result, nil
 }
 
-func (b *historicalBroker) FetchCandles(pair currency.Pair, n int) ([]market.Candle, error) {
+// FetchCandles は直近 count 本のローソク足を新しい順で返す。
+// granularity はHistoricalBrokerでは無視される（CSVの粒度固定）。
+func (b *historicalBroker) FetchCandles(_ context.Context, pair currency.Pair, _ string, count int) ([]market.Candle, error) {
 	if pair != b.pair {
 		return nil, fmt.Errorf("broker: unsupported pair: %s", pair)
 	}
-	start := b.cursor - n + 1
+	start := b.cursor - count + 1
 	if start < 0 {
 		start = 0
 	}

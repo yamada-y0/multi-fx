@@ -521,7 +521,7 @@ func TestHistoricalBroker_FetchCandles_ReturnsNewestFirst(t *testing.T) {
 	b := newTestBroker(t)
 	b.Advance() // tick1へ
 
-	candles, err := b.FetchCandles(currency.USDJPY, 2)
+	candles, err := b.FetchCandles(context.Background(), currency.USDJPY, "M1", 2)
 	if err != nil {
 		t.Fatalf("FetchCandles: %v", err)
 	}
@@ -539,7 +539,7 @@ func TestHistoricalBroker_FetchCandles_ReturnsNewestFirst(t *testing.T) {
 func TestHistoricalBroker_FetchCandles_CapAtAvailable(t *testing.T) {
 	b := newTestBroker(t)
 
-	candles, err := b.FetchCandles(currency.USDJPY, 10)
+	candles, err := b.FetchCandles(context.Background(), currency.USDJPY, "M1", 10)
 	if err != nil {
 		t.Fatalf("FetchCandles: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestHistoricalBroker_FetchCandles_CapAtAvailable(t *testing.T) {
 
 func TestHistoricalBroker_FetchCandles_UnsupportedPair(t *testing.T) {
 	b := newTestBroker(t)
-	_, err := b.FetchCandles(currency.EURUSD, 5)
+	_, err := b.FetchCandles(context.Background(), currency.EURUSD, "M1", 5)
 	if err == nil {
 		t.Error("FetchCandles with unsupported pair should return error")
 	}
