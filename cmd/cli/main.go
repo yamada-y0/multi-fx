@@ -158,14 +158,14 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"```\n\n" +
 		"### market — 市場データの取得（新しい順）\n\n" +
 		"```bash\n" +
-		mfx + " market --state-dir " + sd + " --data <csv-path> --pair USDJPY --n 20\n" +
+		mfx + " market --state-dir " + sd + " --pair USDJPY --n 20 --granularity M1\n" +
 		"```\n\n" +
+		"historicalモード（CSVバックテスト）では `--data <csv-path>` を追加する。\n\n" +
 		"### submit-order — 発注（新規）\n\n" +
 		"```bash\n" +
 		mfx + " submit-order \\\n" +
 		"  --state-dir " + sd + " \\\n" +
 		"  --pair USDJPY \\\n" +
-		"  --data <csv-path> \\\n" +
 		"  --side <long|short> \\\n" +
 		"  --lots <ロット数> \\\n" +
 		"  --stop-loss <ストップロス価格> \\\n" +
@@ -173,12 +173,11 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"```\n\n" +
 		"### submit-order — 決済\n\n" +
 		"決済時の--sideはポジションの方向（ロングポジションならlong、ショートポジションならshort）を指定する。\n" +
-		"**--data は決済時も必須。** PositionIDはsnapshotのPositions[].IDから取得すること。\n\n" +
+		"PositionIDはsnapshotのPositions[].IDから取得すること。\n\n" +
 		"```bash\n" +
 		mfx + " submit-order \\\n" +
 		"  --state-dir " + sd + " \\\n" +
 		"  --pair USDJPY \\\n" +
-		"  --data <csv-path> \\\n" +
 		"  --side <long|short> \\\n" +
 		"  --lots <ロット数> \\\n" +
 		"  --stop-loss <ストップロス価格> \\\n" +
@@ -214,39 +213,43 @@ func runMarket(args []string) {
 	csvPath := fs.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	n := fs.Int("n", 20, "取得するローソク足の本数")
+	granularity := fs.String("granularity", "M1", "ローソク足の粒度（OANDA形式: M1/M5/H1 等）")
 	fs.Parse(args)
 
 	if *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: fxd market --state-dir <dir> [--data <csv>] [--pair <pair>] [--n <count>]")
+		fmt.Fprintln(os.Stderr, "Usage: fxd market --state-dir <dir> [--data <csv>] [--pair <pair>] [--n <count>] [--granularity <M1|M5|H1>]")
 		os.Exit(1)
 	}
 
-	candles, currentTime, err := fetchCandles(*stateDir, *csvPath, *pair, *n)
+	ctx := context.Background()
+	pairVal := currency.Pair(*pair)
+
+	b, hb, err := setupBroker(*stateDir, *csvPath, pairVal)
+	if err != nil {
+		log.Fatalf("setup broker: %v", err)
+	}
+
+	candles, err := b.FetchCandles(ctx, pairVal, *granularity, *n)
 	if err != nil {
 		log.Fatalf("fetch candles: %v", err)
 	}
 
+	var currentTime time.Time
+	if hb != nil {
+		currentTime = hb.CurrentTime()
+	} else {
+		rate, err := b.FetchRate(ctx, pairVal)
+		if err != nil {
+			log.Fatalf("fetch rate: %v", err)
+		}
+		currentTime = rate.Timestamp
+	}
+
 	type marketOutput struct {
-		CurrentTime time.Time        `json:"CurrentTime"`
+		CurrentTime time.Time          `json:"CurrentTime"`
 		Candles     []pkgmarket.Candle `json:"Candles"`
 	}
 	printJSON(marketOutput{CurrentTime: currentTime, Candles: candles})
-}
-
-func fetchCandles(stateDir, csvPath, pairStr string, n int) ([]pkgmarket.Candle, time.Time, error) {
-	pair := currency.Pair(pairStr)
-	if csvPath == "" {
-		return []pkgmarket.Candle{}, time.Time{}, nil
-	}
-	b, err := restoreHistoricalBroker(stateDir, csvPath, pair)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	candles, err := b.FetchCandles(context.Background(), pair, "", n)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	return candles, b.CurrentTime(), nil
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
@@ -261,6 +264,38 @@ func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (brok
 	}
 	b.Restore(snap)
 	return b, nil
+}
+
+// setupBroker はモードに応じて Broker を構築する。
+// csvPath が指定された場合は HistoricalBroker、なければ環境変数から OandaBroker を構築する。
+// hb は historical モード時のみ非 nil。
+func setupBroker(stateDir, csvPath string, pair currency.Pair) (broker.Broker, broker.HistoricalBroker, error) {
+	if csvPath != "" {
+		hb, err := restoreHistoricalBroker(stateDir, csvPath, pair)
+		if err != nil {
+			return nil, nil, err
+		}
+		return hb, hb, nil
+	}
+	b, err := setupOandaBroker()
+	if err != nil {
+		return nil, nil, err
+	}
+	return b, nil, nil
+}
+
+// setupOandaBroker は環境変数から OANDA Broker を構築する
+func setupOandaBroker() (broker.Broker, error) {
+	token := os.Getenv("OANDA_API_TOKEN")
+	accountID := os.Getenv("OANDA_ACCOUNT_ID")
+	if token == "" {
+		return nil, fmt.Errorf("OANDA_API_TOKEN is not set")
+	}
+	if accountID == "" {
+		return nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
+	}
+	practice := os.Getenv("OANDA_PRACTICE") != "false"
+	return broker.NewOandaBroker(token, accountID, practice), nil
 }
 
 func runSubmitOrder(args []string) {
@@ -280,10 +315,6 @@ func runSubmitOrder(args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: fxd submit-order --state-dir <dir> --side <long|short> --lots <n> --stop-loss <price> [--data <csv>]")
 		os.Exit(1)
 	}
-	if *csvPath == "" && *closePositionID != "" {
-		fmt.Fprintln(os.Stderr, "error: --data is required when closing a position (--close-position-id)")
-		os.Exit(1)
-	}
 
 	ctx := context.Background()
 	id := subPoolIDFromDir(*stateDir)
@@ -300,16 +331,9 @@ func runSubmitOrder(args []string) {
 	sp := pool.RestoreSubPool(snap)
 	subPools := map[pool.SubPoolID]pool.SubPool{sp.ID(): sp}
 
-	var b broker.Broker
-	var hb broker.HistoricalBroker
-	if *csvPath != "" {
-		hb, err = restoreHistoricalBroker(*stateDir, *csvPath, currency.Pair(*pair))
-		if err != nil {
-			log.Fatalf("restore broker: %v", err)
-		}
-		b = hb
-	} else {
-		b = &stubBroker{}
+	b, hb, err := setupBroker(*stateDir, *csvPath, currency.Pair(*pair))
+	if err != nil {
+		log.Fatalf("setup broker: %v", err)
 	}
 
 	agg := order.RestoreAggregator(b, subPools, order.NewIdentityMapper(), st)
@@ -444,25 +468,3 @@ func printJSON(v any) {
 	}
 }
 
-type stubBroker struct{}
-
-func (b *stubBroker) SubmitOrder(_ context.Context, o pkgorder.Order) (broker.OrderID, error) {
-	return broker.OrderID("stub-" + string(o.Pair)), nil
-}
-func (b *stubBroker) FetchOrders(_ context.Context) ([]pkgorder.PendingOrder, error) {
-	return nil, nil
-}
-func (b *stubBroker) FetchFillEvents(_ context.Context, _ string) ([]pkgorder.FillEvent, error) {
-	return nil, nil
-}
-func (b *stubBroker) CancelOrder(_ context.Context, _ broker.OrderID) error { return nil }
-func (b *stubBroker) FetchPositions(_ context.Context) ([]pkgorder.Position, error) {
-	return nil, nil
-}
-func (b *stubBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
-	return currency.Rate{Pair: pair, Bid: decimal.NewFromFloat(150.0), Ask: decimal.NewFromFloat(150.0)}, nil
-}
-func (b *stubBroker) FetchCandles(_ context.Context, pair currency.Pair, _ string, _ int) ([]pkgmarket.Candle, error) {
-	return nil, nil
-}
-func (b *stubBroker) Name() string { return "stub" }
