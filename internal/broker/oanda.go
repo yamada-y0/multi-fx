@@ -459,15 +459,21 @@ func (b *oandaBroker) FetchOrders(ctx context.Context) ([]pkgorder.PendingOrder,
 // --- FetchFillEvents ---
 
 // FetchFillEvents は OANDA のトランザクション履歴から約定イベントを取得する。
-// sinceID="" のとき直近100件を返す。
+// sinceID != "" のとき /transactions/sinceid を使い全件取得（ページング不要）。
+// sinceID == "" のとき直近100件を返す（初回起動時は過去データ不要）。
 func (b *oandaBroker) FetchFillEvents(ctx context.Context, sinceID string) ([]pkgorder.FillEvent, error) {
-	params := map[string]string{"type": "ORDER_FILL"}
+	var (
+		path   string
+		params map[string]string
+	)
 	if sinceID != "" {
-		params["sinceTransactionID"] = sinceID
+		// sinceid エンドポイントは指定ID以降の全トランザクションを返す（ページング不要）
+		path = "/v3/accounts/" + b.accountID + "/transactions/sinceid"
+		params = map[string]string{"id": sinceID}
 	} else {
-		params["count"] = "100"
+		path = "/v3/accounts/" + b.accountID + "/transactions"
+		params = map[string]string{"type": "ORDER_FILL", "count": "100"}
 	}
-	path := "/v3/accounts/" + b.accountID + "/transactions"
 	resp, err := b.get(ctx, path, params)
 	if err != nil {
 		return nil, fmt.Errorf("oanda: fetch transactions: %w", err)
