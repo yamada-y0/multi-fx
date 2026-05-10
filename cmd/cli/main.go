@@ -40,6 +40,8 @@ func main() {
 		runSetWakeup(os.Args[2:])
 	case "market":
 		runMarket(os.Args[2:])
+	case "note":
+		runNote(os.Args[2:])
 	case "init-agent":
 		runInitAgent(os.Args[2:])
 	default:
@@ -445,6 +447,34 @@ func runCancelOrder(args []string) {
 	}
 
 	printJSON(map[string]string{"cancelled_order_id": *orderID})
+}
+
+func runNote(args []string) {
+	fs := flag.NewFlagSet("note", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
+	fs.Parse(args)
+
+	if *stateDir == "" || len(fs.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: fxd note --state-dir <dir> <メッセージ>")
+		os.Exit(1)
+	}
+
+	jst := time.FixedZone("JST", 9*60*60)
+	ts := time.Now().In(jst).Format("2006-01-02 15:04:05 JST")
+	line := fmt.Sprintf("- [%s] %s\n", ts, strings.Join(fs.Args(), " "))
+
+	notesPath := filepath.Join(*stateDir, "notes.md")
+	f, err := os.OpenFile(notesPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("open notes: %v", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(line); err != nil {
+		log.Fatalf("write note: %v", err)
+	}
+
+	printJSON(map[string]string{"noted": strings.Join(fs.Args(), " ")})
 }
 
 func runSetWakeup(args []string) {
