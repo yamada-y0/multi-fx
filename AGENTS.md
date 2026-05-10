@@ -29,19 +29,44 @@ go test ./...
 - **エラーハンドリング**: `fmt.Errorf("パッケージ名: %w", err)` でラップして文脈を付ける
 - **コメント**: 非自明な制約・不変条件・特定バグへのワークアラウンドのみコメントを書く
 
+## パッケージ構成
+
+| パッケージ | 役割 |
+|---|---|
+| `cmd/kick` | cronエントリポイント。WakeupCondition判定→Claude起動 |
+| `cmd/cli` | Claude向けCLIサブコマンド（snapshot/market/submit-order/set-wakeup/init-agent）|
+| `internal/broker` | Broker抽象（TradingBroker/MarketBroker）とOANDA・historical実装 |
+| `internal/tick` | 1ティック分のサイクル（FetchFillEvents同期→WakeupCondition評価） |
+| `internal/agent` | WakeupCondition定義・JSONストア |
+| `internal/store` | 状態永続化（lastFillEventID・sessionID） |
+| `pkg/indicator` | テクニカル指標算出（SMA/EMA/RSI/ATR/MACD） |
+| `pkg/order` | 共有型（Order/Position/FillEvent/AccountInfo/CalendarEvent等） |
+| `pkg/market` | Candle型 |
+| `pkg/currency` | Pair/Rate型 |
+
 ## 依存方向（循環インポート禁止）
 
 ```
-cmd/*          →  internal/tick, internal/broker, internal/agent, internal/store
-internal/tick  →  internal/broker, internal/agent, internal/store, pkg/currency
-internal/broker → pkg/order, pkg/currency, pkg/market
-internal/agent  → pkg/currency
+cmd/*           →  internal/tick, internal/broker, internal/agent, internal/store, pkg/indicator
+internal/tick   →  internal/broker, internal/agent, internal/store, pkg/currency
+internal/broker →  pkg/order, pkg/currency, pkg/market
+internal/agent  →  pkg/currency
 internal/store  （他のinternalパッケージをインポートしない）
-internal/*      → pkg/currency, pkg/order, pkg/market, pkg/clock
+pkg/indicator   →  pkg/market
+internal/*      →  pkg/currency, pkg/order, pkg/market, pkg/clock
 ```
+
+## Brokerインターフェース
+
+`Broker` は `TradingBroker` と `MarketBroker` を統合したインターフェース。
+
+- **TradingBroker**: SubmitOrder / CancelOrder / FetchPositions / FetchOrders / FetchFillEvents / FetchAccount
+- **MarketBroker**: FetchRate / FetchCandles / FetchCalendar
+
+OANDAモードでは `NewOandaTradingBroker`（practice環境）と `NewOandaMarketBroker`（live環境）を別々に生成して使い分けられる。環境変数 `OANDA_MARKET_API_TOKEN` / `OANDA_MARKET_PRACTICE` を設定した場合のみ別インスタンスを使用し、未設定時はTradingBrokerと同じトークンにフォールバックする。
 
 ## 変更時の注意
 
-- `internal/broker/broker.go` の `Broker` インターフェースを変更する場合は、`historical.go` / `oanda.go` および `cmd/cli` / `cmd/kick` の stubBroker 相当を合わせて変更する
-- `internal/broker/broker.go` の `HistoricalBrokerSnapshot` を変更する場合は、既存の `broker_snapshot.json` との互換性を確認する
-- `internal/agent/wakeup.go` の `WakeupCondition.IsMet()` シグネチャを変更する場合は `internal/tick/tick.go` も合わせて変更する
+- `TradingBroker` / `MarketBroker` インターフェースを変更する場合は `historical.go` / `oanda.go` および `cmd/cli` / `cmd/kick` を合わせて変更する
+- `HistoricalBrokerSnapshot` を変更する場合は既存の `broker_snapshot.json` との互換性を確認する
+- `WakeupCondition.IsMet()` シグネチャを変更する場合は `internal/tick/tick.go` も合わせて変更する

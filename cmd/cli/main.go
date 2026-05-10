@@ -144,11 +144,25 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		mfx + " snapshot --state-dir " + sd + "\n" +
 		"```\n\n" +
 		"### market — 市場データの取得（新しい順）\n\n" +
-		"出力フィールド: CurrentTime, Bid, Ask, Candles, Calendar（経済指標）, PositionRatios（ロング/ショート比率）, COT（大口筋ポジション）, OrderBook（オーダーブック）\n\n" +
+		"出力フィールド:\n" +
+		"- `CurrentTime` : 現在時刻\n" +
+		"- `Bid` / `Ask` : 現在のBid/Askレート\n" +
+		"- `Candles` : ローソク足（インデックス0が最新）\n" +
+		"- `Indicators` : テクニカル指標\n" +
+		"  - `SMA` : 単純移動平均（20/50/200期間）。SMA200は200本以上必要\n" +
+		"  - `EMA` : 指数移動平均（12/26期間）\n" +
+		"  - `RSI` : RSI（14期間）。70以上=買われすぎ、30以下=売られすぎ\n" +
+		"  - `ATR` : 平均真の値幅（14期間）。ストップロス幅の目安に使える\n" +
+		"  - `MACD` : MACD/Signal/Hist（12/26/9期間）\n" +
+		"- `Calendar` : 今週のUSD/JPY経済指標（Impact: High/Medium/Low/Holiday）\n\n" +
+		"データ不足の指標はゼロ値になる。SMA200を使う場合は `--n 200` 以上を指定すること。\n\n" +
 		"```bash\n" +
-		mfx + " market --state-dir " + sd + " --pair USDJPY --n 20 --granularity M1\n" +
+		mfx + " market --state-dir " + sd + " --pair USDJPY --n 200 --granularity H1\n" +
 		"```\n\n" +
-		"historicalモード（CSVバックテスト）では `--data <csv-path>` を追加する。historicalモードではCalendar/PositionRatios/COT/OrderBookは出力されない。\n\n" +
+		"historicalモード（CSVバックテスト）では `--data <csv-path>` を追加する。historicalモードではCalendarは出力されない。\n\n" +
+		"**経済指標への対応:**\n" +
+		"CalendarのImpact=Highのイベント前後は相場が急変しやすい。\n" +
+		"重要指標の発表時刻を `--after` で指定してその直前に起動するよう設定することを検討すること。\n\n" +
 		"### submit-order — 発注（新規）\n\n" +
 		"```bash\n" +
 		mfx + " submit-order \\\n" +
