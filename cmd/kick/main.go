@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
@@ -104,7 +103,7 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	}
 
 	if sessionID != "" {
-		if err := saveSessionLog(stateDir, sessionID, rate.Timestamp); err != nil {
+		if err := saveSessionLog(stateDir, sessionID); err != nil {
 			log.Printf("warn: save session log: %v", err)
 		}
 	}
@@ -189,7 +188,9 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	return result.SessionID, nil
 }
 
-func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
+// saveSessionLog は Claude Code の jsonl をパースして stateDir/session.log に上書き保存する。
+// セッションが --resume で継続されるたびに全会話が最新状態で上書きされる。
+func saveSessionLog(stateDir, sessionID string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home dir: %w", err)
@@ -209,22 +210,14 @@ func saveSessionLog(stateDir, sessionID string, tickTime time.Time) error {
 		return fmt.Errorf("read jsonl: %w", err)
 	}
 
-	md := formatSessionLog(sessionID, tickTime, data)
-
-	logsDir := filepath.Join(stateDir, "logs")
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
-		return fmt.Errorf("mkdir logs: %w", err)
-	}
-
-	filename := fmt.Sprintf("%s_%s.md", tickTime.UTC().Format("2006-01-02T15-04-05Z"), sessionID[:8])
-	return os.WriteFile(filepath.Join(logsDir, filename), []byte(md), 0644)
+	md := formatSessionLog(sessionID, data)
+	return os.WriteFile(filepath.Join(stateDir, "session.log"), []byte(md), 0644)
 }
 
-func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string {
+func formatSessionLog(sessionID string, data []byte) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# セッションログ\n\n")
-	sb.WriteString(fmt.Sprintf("- **セッションID**: %s\n", sessionID))
-	sb.WriteString(fmt.Sprintf("- **ティック時刻**: %s\n\n", tickTime.UTC().Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("- **セッションID**: %s\n\n", sessionID))
 	sb.WriteString("---\n\n")
 
 	type message struct {
@@ -236,6 +229,7 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024) // jsonlの行が大きい場合に備えて拡張
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -280,7 +274,7 @@ func formatSessionLog(sessionID string, tickTime time.Time, data []byte) string 
 							for _, c := range arr {
 								if cm, ok := c.(map[string]any); ok {
 									if cm["type"] == "text" {
-										content += cm["text"].(string)
+										content += fmt.Sprintf("%s", cm["text"])
 									}
 								}
 							}
