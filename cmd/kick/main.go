@@ -239,14 +239,11 @@ func formatSessionLog(sessionID string, data []byte) string {
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
-		if msg.Type != "user" && msg.Type != "assistant" {
+		if msg.Type != "assistant" {
 			continue
 		}
 
-		role := "**User**"
-		if msg.Type == "assistant" {
-			role = "**Assistant**"
-		}
+		role := "**Assistant**"
 
 		var text string
 		switch v := msg.Message.Content.(type) {
