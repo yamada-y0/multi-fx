@@ -58,20 +58,20 @@ func runSnapshot(args []string) {
 	}
 
 	ctx := context.Background()
-	b, _, err := setupBroker(*stateDir, "", currency.Pair(*pair))
+	tb, _, _, err := setupBrokers(*stateDir, "", currency.Pair(*pair))
 	if err != nil {
 		log.Fatalf("setup broker: %v", err)
 	}
 
-	account, err := b.FetchAccount(ctx)
+	account, err := tb.FetchAccount(ctx)
 	if err != nil {
 		log.Fatalf("fetch account: %v", err)
 	}
-	positions, err := b.FetchPositions(ctx)
+	positions, err := tb.FetchPositions(ctx)
 	if err != nil {
 		log.Fatalf("fetch positions: %v", err)
 	}
-	orders, err := b.FetchOrders(ctx)
+	orders, err := tb.FetchOrders(ctx)
 	if err != nil {
 		log.Fatalf("fetch orders: %v", err)
 	}
@@ -143,10 +143,11 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		mfx + " snapshot --state-dir " + sd + "\n" +
 		"```\n\n" +
 		"### market — 市場データの取得（新しい順）\n\n" +
+		"出力フィールド: CurrentTime, Bid, Ask, Candles, Calendar（経済指標）, PositionRatios（ロング/ショート比率）, COT（大口筋ポジション）, OrderBook（オーダーブック）\n\n" +
 		"```bash\n" +
 		mfx + " market --state-dir " + sd + " --pair USDJPY --n 20 --granularity M1\n" +
 		"```\n\n" +
-		"historicalモード（CSVバックテスト）では `--data <csv-path>` を追加する。\n\n" +
+		"historicalモード（CSVバックテスト）では `--data <csv-path>` を追加する。historicalモードではCalendar/PositionRatios/COT/OrderBookは出力されない。\n\n" +
 		"### submit-order — 発注（新規）\n\n" +
 		"```bash\n" +
 		mfx + " submit-order \\\n" +
@@ -198,6 +199,9 @@ func runMarket(args []string) {
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	n := fs.Int("n", 20, "取得するローソク足の本数")
 	granularity := fs.String("granularity", "M1", "ローソク足の粒度（OANDA形式: M1/M5/H1 等）")
+	calendarPeriod := fs.Int("calendar-period", 86400, "経済指標カレンダーの期間（秒）")
+	ratiosPeriod := fs.Int("ratios-period", 3600, "ポジション比率の期間（秒）")
+	orderbookPeriod := fs.Int("orderbook-period", 3600, "オーダーブックの期間（秒）")
 	fs.Parse(args)
 
 	if *stateDir == "" {
@@ -208,17 +212,17 @@ func runMarket(args []string) {
 	ctx := context.Background()
 	pairVal := currency.Pair(*pair)
 
-	b, hb, err := setupBroker(*stateDir, *csvPath, pairVal)
+	_, mb, hb, err := setupBrokers(*stateDir, *csvPath, pairVal)
 	if err != nil {
 		log.Fatalf("setup broker: %v", err)
 	}
 
-	candles, err := b.FetchCandles(ctx, pairVal, *granularity, *n)
+	candles, err := mb.FetchCandles(ctx, pairVal, *granularity, *n)
 	if err != nil {
 		log.Fatalf("fetch candles: %v", err)
 	}
 
-	rate, err := b.FetchRate(ctx, pairVal)
+	rate, err := mb.FetchRate(ctx, pairVal)
 	if err != nil {
 		log.Fatalf("fetch rate: %v", err)
 	}
@@ -231,12 +235,35 @@ func runMarket(args []string) {
 	}
 
 	type marketOutput struct {
-		CurrentTime time.Time          `json:"CurrentTime"`
-		Bid         decimal.Decimal    `json:"Bid"`
-		Ask         decimal.Decimal    `json:"Ask"`
-		Candles     []pkgmarket.Candle `json:"Candles"`
+		CurrentTime    time.Time                       `json:"CurrentTime"`
+		Bid            decimal.Decimal                 `json:"Bid"`
+		Ask            decimal.Decimal                 `json:"Ask"`
+		Candles        []pkgmarket.Candle              `json:"Candles"`
+		Calendar       []pkgorder.CalendarEvent        `json:"Calendar,omitempty"`
+		PositionRatios []pkgorder.PositionRatioPoint   `json:"PositionRatios,omitempty"`
+		COT            []pkgorder.CommitmentsOfTraders `json:"COT,omitempty"`
+		OrderBook      []pkgorder.OrderBook            `json:"OrderBook,omitempty"`
 	}
-	printJSON(marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles})
+
+	out := marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles}
+
+	// historicalモードでは Labs API は使わない
+	if hb == nil {
+		if cal, err := mb.FetchCalendar(ctx, pairVal, *calendarPeriod); err == nil {
+			out.Calendar = cal
+		}
+		if ratios, err := mb.FetchPositionRatios(ctx, pairVal, *ratiosPeriod); err == nil {
+			out.PositionRatios = ratios
+		}
+		if cot, err := mb.FetchCommitmentsOfTraders(ctx, pairVal); err == nil {
+			out.COT = cot
+		}
+		if ob, err := mb.FetchOrderBook(ctx, pairVal, *orderbookPeriod); err == nil {
+			out.OrderBook = ob
+		}
+	}
+
+	printJSON(out)
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
@@ -253,32 +280,45 @@ func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (brok
 	return b, nil
 }
 
-func setupBroker(stateDir, csvPath string, pair currency.Pair) (broker.Broker, broker.HistoricalBroker, error) {
+// setupBrokers は TradingBroker / MarketBroker / HistoricalBroker（historical時のみ）を返す。
+func setupBrokers(stateDir, csvPath string, pair currency.Pair) (broker.TradingBroker, broker.MarketBroker, broker.HistoricalBroker, error) {
 	if csvPath != "" {
 		hb, err := restoreHistoricalBroker(stateDir, csvPath, pair)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		return hb, hb, nil
+		return hb, hb, hb, nil
 	}
-	b, err := setupOandaBroker()
+	tb, mb, err := setupOandaBrokers()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return b, nil, nil
+	return tb, mb, nil, nil
 }
 
-func setupOandaBroker() (broker.Broker, error) {
+// setupOandaBrokers は取引用 TradingBroker と市場データ用 MarketBroker を返す。
+// OANDA_MARKET_API_TOKEN / OANDA_MARKET_PRACTICE が設定されていればlive環境のMarketBrokerを使う。
+func setupOandaBrokers() (broker.TradingBroker, broker.MarketBroker, error) {
 	token := os.Getenv("OANDA_API_TOKEN")
 	accountID := os.Getenv("OANDA_ACCOUNT_ID")
 	if token == "" {
-		return nil, fmt.Errorf("OANDA_API_TOKEN is not set")
+		return nil, nil, fmt.Errorf("OANDA_API_TOKEN is not set")
 	}
 	if accountID == "" {
-		return nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
+		return nil, nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
 	}
 	practice := os.Getenv("OANDA_PRACTICE") != "false"
-	return broker.NewOandaBroker(token, accountID, practice), nil
+	tb := broker.NewOandaTradingBroker(token, accountID, practice)
+
+	marketToken := os.Getenv("OANDA_MARKET_API_TOKEN")
+	marketPractice := os.Getenv("OANDA_MARKET_PRACTICE") != "false"
+	var mb broker.MarketBroker
+	if marketToken != "" {
+		mb = broker.NewOandaMarketBroker(marketToken, marketPractice)
+	} else {
+		mb = broker.NewOandaMarketBroker(token, practice)
+	}
+	return tb, mb, nil
 }
 
 func runSubmitOrder(args []string) {
@@ -302,7 +342,7 @@ func runSubmitOrder(args []string) {
 	ctx := context.Background()
 	pairVal := currency.Pair(*pair)
 
-	b, hb, err := setupBroker(*stateDir, *csvPath, pairVal)
+	tb, _, hb, err := setupBrokers(*stateDir, *csvPath, pairVal)
 	if err != nil {
 		log.Fatalf("setup broker: %v", err)
 	}
@@ -341,7 +381,7 @@ func runSubmitOrder(args []string) {
 		ClosePositionID: *closePositionID,
 	}
 
-	orderID, err := b.SubmitOrder(ctx, o)
+	orderID, err := tb.SubmitOrder(ctx, o)
 	if err != nil {
 		log.Fatalf("submit order: %v", err)
 	}
@@ -360,7 +400,7 @@ func runSubmitOrder(args []string) {
 		log.Fatalf("store: %v", err)
 	}
 	lastID, _ := st.LoadLastFillEventID(ctx)
-	events, err := b.FetchFillEvents(ctx, lastID)
+	events, err := tb.FetchFillEvents(ctx, lastID)
 	if err != nil {
 		log.Fatalf("fetch fill events: %v", err)
 	}

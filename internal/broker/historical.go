@@ -283,6 +283,22 @@ func (b *historicalBroker) FetchAccount(_ context.Context) (pkgorder.AccountInfo
 	return pkgorder.AccountInfo{}, nil
 }
 
+func (b *historicalBroker) FetchCalendar(_ context.Context, _ currency.Pair, _ int) ([]pkgorder.CalendarEvent, error) {
+	return nil, nil
+}
+
+func (b *historicalBroker) FetchPositionRatios(_ context.Context, _ currency.Pair, _ int) ([]pkgorder.PositionRatioPoint, error) {
+	return nil, nil
+}
+
+func (b *historicalBroker) FetchCommitmentsOfTraders(_ context.Context, _ currency.Pair) ([]pkgorder.CommitmentsOfTraders, error) {
+	return nil, nil
+}
+
+func (b *historicalBroker) FetchOrderBook(_ context.Context, _ currency.Pair, _ int) ([]pkgorder.OrderBook, error) {
+	return nil, nil
+}
+
 func (b *historicalBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	if pair != b.pair {
 		return currency.Rate{}, fmt.Errorf("broker: unsupported pair: %s", pair)

@@ -12,9 +12,8 @@ import (
 // OrderID は Broker が発行するオーダー識別子
 type OrderID string
 
-// Broker は発注・オーダー管理・レート取得の抽象インターフェース
-// pool など内部概念を知らず、pkg/order の汎用型のみを扱う
-type Broker interface {
+// TradingBroker は発注・ポジション管理・約定履歴取得の抽象インターフェース
+type TradingBroker interface {
 	// SubmitOrder はオーダーを受け付けて OrderID を返す
 	SubmitOrder(ctx context.Context, order pkgorder.Order) (OrderID, error)
 
@@ -34,6 +33,12 @@ type Broker interface {
 	// FetchAccount は口座残高・証拠金情報を返す
 	FetchAccount(ctx context.Context) (pkgorder.AccountInfo, error)
 
+	// Name はブローカー識別子（ログ・メトリクス用）
+	Name() string
+}
+
+// MarketBroker はレート・ローソク足・市場情報取得の抽象インターフェース
+type MarketBroker interface {
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
 
@@ -41,8 +46,26 @@ type Broker interface {
 	// granularity は "M1"/"M5"/"H1" 等（OANDA形式）
 	FetchCandles(ctx context.Context, pair currency.Pair, granularity string, count int) ([]market.Candle, error)
 
+	// FetchCalendar は経済指標カレンダーを返す。period は秒単位（86400=1日など）
+	FetchCalendar(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.CalendarEvent, error)
+
+	// FetchPositionRatios はヒストリカルなロング/ショート比率を返す。period は秒単位
+	FetchPositionRatios(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.PositionRatioPoint, error)
+
+	// FetchCommitmentsOfTraders はCFTC大口筋ポジションを返す
+	FetchCommitmentsOfTraders(ctx context.Context, pair currency.Pair) ([]pkgorder.CommitmentsOfTraders, error)
+
+	// FetchOrderBook はオーダーブックのスナップショットを返す。period は秒単位
+	FetchOrderBook(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.OrderBook, error)
+
 	// Name はブローカー識別子（ログ・メトリクス用）
 	Name() string
+}
+
+// Broker は TradingBroker と MarketBroker を統合したインターフェース（historical など単一実装向け）
+type Broker interface {
+	TradingBroker
+	MarketBroker
 }
 
 // HistoricalBroker は過去データを再生するバックテスト用 Broker

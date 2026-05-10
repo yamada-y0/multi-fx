@@ -19,12 +19,12 @@ type Result struct {
 
 // Ticker は1ティック分のサイクルを実行する
 type Ticker struct {
-	broker      broker.Broker
+	broker      broker.TradingBroker
 	wakeupStore agent.WakeupStore
 	store       store.StateStore
 }
 
-func New(b broker.Broker, wakeupStore agent.WakeupStore, st store.StateStore) *Ticker {
+func New(b broker.TradingBroker, wakeupStore agent.WakeupStore, st store.StateStore) *Ticker {
 	return &Ticker{broker: b, wakeupStore: wakeupStore, store: st}
 }
 

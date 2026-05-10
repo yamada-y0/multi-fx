@@ -53,7 +53,7 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	}
 
 	// Broker構築
-	b, dataDone, err := setupBroker(stateDir, csvPath, pairStr)
+	tb, mb, hb, dataDone, err := setupBrokers(stateDir, csvPath, pairStr)
 	if err != nil {
 		return false, fmt.Errorf("setup broker: %v", err)
 	}
@@ -63,20 +63,20 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	}
 
 	// レート取得
-	rate, err := b.FetchRate(ctx, currency.Pair(pairStr))
+	rate, err := mb.FetchRate(ctx, currency.Pair(pairStr))
 	if err != nil {
 		return false, fmt.Errorf("fetch rate: %v", err)
 	}
 
 	wakeupStore := agent.NewJSONWakeupStore(filepath.Join(stateDir, "wakeup.json"))
-	ticker := tick.New(b, wakeupStore, st)
+	ticker := tick.New(tb, wakeupStore, st)
 	result, err := ticker.Tick(ctx, rate)
 	if err != nil {
 		return false, fmt.Errorf("tick: %v", err)
 	}
 
 	// Brokerスナップショットを保存（Advance後の状態）
-	if hb, ok := b.(broker.HistoricalBroker); ok {
+	if hb != nil {
 		snapPath := filepath.Join(stateDir, "broker_snapshot.json")
 		if err := broker.SaveHistoricalBrokerSnapshot(snapPath, hb.Snapshot()); err != nil {
 			return false, fmt.Errorf("save broker snapshot: %v", err)
@@ -112,34 +112,36 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	return false, nil
 }
 
-func setupBroker(stateDir, csvPath, pairStr string) (broker.Broker, bool, error) {
+// setupBrokers は TradingBroker / MarketBroker / HistoricalBroker（historical時のみ）を返す。
+// dataDone=true のとき historical データ終端。
+func setupBrokers(stateDir, csvPath, pairStr string) (broker.TradingBroker, broker.MarketBroker, broker.HistoricalBroker, bool, error) {
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
-		b, err := setupOandaBroker()
+		tb, mb, err := setupOandaBrokers()
 		if err != nil {
-			return nil, false, err
+			return nil, nil, nil, false, err
 		}
-		return b, false, nil
+		return tb, mb, nil, false, nil
 	}
 
 	b, err := broker.NewHistoricalBroker(pair, csvPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("historical broker: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("historical broker: %w", err)
 	}
 
 	snapPath := filepath.Join(stateDir, "broker_snapshot.json")
 	snap, err := broker.LoadHistoricalBrokerSnapshot(snapPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("load broker snapshot: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("load broker snapshot: %w", err)
 	}
 	b.Restore(snap)
 
 	if !b.Advance() {
-		return nil, true, nil
+		return nil, nil, nil, true, nil
 	}
 
-	return b, false, nil
+	return b, b, b, false, nil
 }
 
 func runClaude(stateDir, prevSessionID string) (string, error) {
@@ -322,15 +324,27 @@ func resolveClaude() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func setupOandaBroker() (broker.Broker, error) {
+// setupOandaBrokers は取引用 TradingBroker と市場データ用 MarketBroker を返す。
+// OANDA_MARKET_API_TOKEN / OANDA_MARKET_PRACTICE が設定されていればlive環境のMarketBrokerを使う。
+func setupOandaBrokers() (broker.TradingBroker, broker.MarketBroker, error) {
 	token := os.Getenv("OANDA_API_TOKEN")
 	accountID := os.Getenv("OANDA_ACCOUNT_ID")
 	if token == "" {
-		return nil, fmt.Errorf("OANDA_API_TOKEN is not set")
+		return nil, nil, fmt.Errorf("OANDA_API_TOKEN is not set")
 	}
 	if accountID == "" {
-		return nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
+		return nil, nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
 	}
 	practice := os.Getenv("OANDA_PRACTICE") != "false"
-	return broker.NewOandaBroker(token, accountID, practice), nil
+	tb := broker.NewOandaTradingBroker(token, accountID, practice)
+
+	marketToken := os.Getenv("OANDA_MARKET_API_TOKEN")
+	marketPractice := os.Getenv("OANDA_MARKET_PRACTICE") != "false"
+	var mb broker.MarketBroker
+	if marketToken != "" {
+		mb = broker.NewOandaMarketBroker(marketToken, marketPractice)
+	} else {
+		mb = broker.NewOandaMarketBroker(token, practice)
+	}
+	return tb, mb, nil
 }
