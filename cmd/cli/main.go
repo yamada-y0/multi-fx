@@ -189,6 +189,20 @@ func writeClaudeMD(path, stateDir, mfxPath string) error {
 		"  --stop-loss <ストップロス価格> \\\n" +
 		"  --close-position-id <PositionID>\n" +
 		"```\n\n" +
+		"### cancel-order — 未約定注文のキャンセル\n\n" +
+		"OrderIDはsnapshotのOrders[].IDから取得すること。\n\n" +
+		"```bash\n" +
+		mfx + " cancel-order \\\n" +
+		"  --state-dir " + sd + " \\\n" +
+		"  --order-id <OrderID>\n" +
+		"```\n\n" +
+		"### note — 気づき・要望の記録\n\n" +
+		"コマンドの不足・改善点・判断の根拠など、開発者へのフィードバックを記録する。\n" +
+		"`notes.md` にタイムスタンプ付きで追記される。\n" +
+		"「このコマンドがあれば〜できた」「この情報が欲しかった」などを積極的に残すこと。\n\n" +
+		"```bash\n" +
+		mfx + " note --state-dir " + sd + " \"気づいたこと・要望\"\n" +
+		"```\n\n" +
 		"### set-wakeup — 次回起動条件の設定\n\n" +
 		"複数フラグを同時指定するとOR評価になる（どれか1つが満たされたら起動）。\n\n" +
 		"```bash\n" +
