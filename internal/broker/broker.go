@@ -37,7 +37,7 @@ type TradingBroker interface {
 	Name() string
 }
 
-// MarketBroker はレート・ローソク足取得の抽象インターフェース
+// MarketBroker はレート・ローソク足・経済指標カレンダー取得の抽象インターフェース
 type MarketBroker interface {
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
@@ -45,6 +45,10 @@ type MarketBroker interface {
 	// FetchCandles は指定ペア・granularity で直近 count 本のローソク足を新しい順で返す
 	// granularity は "M1"/"M5"/"H1" 等（OANDA形式）
 	FetchCandles(ctx context.Context, pair currency.Pair, granularity string, count int) ([]market.Candle, error)
+
+	// FetchCalendar は今週の経済指標カレンダーを返す（ForexFactory）
+	// currencies で対象通貨を絞る（例: ["USD","JPY"]）。空のとき全通貨を返す。
+	FetchCalendar(ctx context.Context, currencies []string) ([]pkgorder.CalendarEvent, error)
 
 	// Name はブローカー識別子（ログ・メトリクス用）
 	Name() string

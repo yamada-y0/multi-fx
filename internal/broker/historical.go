@@ -283,6 +283,10 @@ func (b *historicalBroker) FetchAccount(_ context.Context) (pkgorder.AccountInfo
 	return pkgorder.AccountInfo{}, nil
 }
 
+func (b *historicalBroker) FetchCalendar(_ context.Context, _ []string) ([]pkgorder.CalendarEvent, error) {
+	return nil, nil
+}
+
 
 func (b *historicalBroker) FetchRate(_ context.Context, pair currency.Pair) (currency.Rate, error) {
 	if pair != b.pair {

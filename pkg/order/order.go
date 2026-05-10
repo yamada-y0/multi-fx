@@ -74,6 +74,16 @@ type AccountInfo struct {
 }
 
 
+// CalendarEvent は経済指標カレンダーのイベント（ForexFactory）
+type CalendarEvent struct {
+	Title    string    // 指標名
+	Country  string    // 通貨コード（"USD", "JPY" 等）
+	Date     time.Time // 発表予定時刻（UTC）
+	Impact   string    // "High", "Medium", "Low", "Holiday"
+	Forecast string    // 予想値
+	Previous string    // 前回値
+}
+
 // Position はブローカーが保持するポジション
 type Position struct {
 	ID        string

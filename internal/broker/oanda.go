@@ -599,3 +599,60 @@ func (b *oandaBroker) FetchFillEvents(ctx context.Context, sinceID string) ([]pk
 	return events, nil
 }
 
+// --- FetchCalendar ---
+
+const forexFactoryCalendarURL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+
+// FetchCalendar は ForexFactory から今週の経済指標カレンダーを取得する。
+// currencies が空でない場合は指定通貨のみ返す。
+func (b *oandaBroker) FetchCalendar(ctx context.Context, currencies []string) ([]pkgorder.CalendarEvent, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, forexFactoryCalendarURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("oanda: fetch calendar: %w", err)
+	}
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("oanda: fetch calendar: %w", err)
+	}
+	data, err := readBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkStatus(resp, data, http.StatusOK); err != nil {
+		return nil, err
+	}
+
+	var raw []struct {
+		Title    string `json:"title"`
+		Country  string `json:"country"`
+		Date     string `json:"date"`
+		Impact   string `json:"impact"`
+		Forecast string `json:"forecast"`
+		Previous string `json:"previous"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("oanda: parse calendar: %w", err)
+	}
+
+	filter := make(map[string]bool, len(currencies))
+	for _, c := range currencies {
+		filter[c] = true
+	}
+
+	events := make([]pkgorder.CalendarEvent, 0, len(raw))
+	for _, r := range raw {
+		if len(filter) > 0 && !filter[r.Country] {
+			continue
+		}
+		ts, _ := time.Parse(time.RFC3339, r.Date)
+		events = append(events, pkgorder.CalendarEvent{
+			Title:    r.Title,
+			Country:  r.Country,
+			Date:     ts.UTC(),
+			Impact:   r.Impact,
+			Forecast: r.Forecast,
+			Previous: r.Previous,
+		})
+	}
+	return events, nil
+}

@@ -232,13 +232,23 @@ func runMarket(args []string) {
 	}
 
 	type marketOutput struct {
-		CurrentTime time.Time          `json:"CurrentTime"`
-		Bid         decimal.Decimal    `json:"Bid"`
-		Ask         decimal.Decimal    `json:"Ask"`
-		Candles     []pkgmarket.Candle `json:"Candles"`
+		CurrentTime time.Time                `json:"CurrentTime"`
+		Bid         decimal.Decimal          `json:"Bid"`
+		Ask         decimal.Decimal          `json:"Ask"`
+		Candles     []pkgmarket.Candle       `json:"Candles"`
+		Calendar    []pkgorder.CalendarEvent `json:"Calendar,omitempty"`
 	}
 
-	printJSON(marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles})
+	out := marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles}
+
+	// historicalモードではカレンダーは取得しない
+	if hb == nil {
+		if cal, err := mb.FetchCalendar(ctx, []string{"USD", "JPY"}); err == nil {
+			out.Calendar = cal
+		}
+	}
+
+	printJSON(out)
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {
