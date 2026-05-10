@@ -199,9 +199,6 @@ func runMarket(args []string) {
 	pair := fs.String("pair", "USDJPY", "通貨ペア")
 	n := fs.Int("n", 20, "取得するローソク足の本数")
 	granularity := fs.String("granularity", "M1", "ローソク足の粒度（OANDA形式: M1/M5/H1 等）")
-	calendarPeriod := fs.Int("calendar-period", 86400, "経済指標カレンダーの期間（秒）")
-	ratiosPeriod := fs.Int("ratios-period", 3600, "ポジション比率の期間（秒）")
-	orderbookPeriod := fs.Int("orderbook-period", 3600, "オーダーブックの期間（秒）")
 	fs.Parse(args)
 
 	if *stateDir == "" {
@@ -235,35 +232,13 @@ func runMarket(args []string) {
 	}
 
 	type marketOutput struct {
-		CurrentTime    time.Time                       `json:"CurrentTime"`
-		Bid            decimal.Decimal                 `json:"Bid"`
-		Ask            decimal.Decimal                 `json:"Ask"`
-		Candles        []pkgmarket.Candle              `json:"Candles"`
-		Calendar       []pkgorder.CalendarEvent        `json:"Calendar,omitempty"`
-		PositionRatios []pkgorder.PositionRatioPoint   `json:"PositionRatios,omitempty"`
-		COT            []pkgorder.CommitmentsOfTraders `json:"COT,omitempty"`
-		OrderBook      []pkgorder.OrderBook            `json:"OrderBook,omitempty"`
+		CurrentTime time.Time          `json:"CurrentTime"`
+		Bid         decimal.Decimal    `json:"Bid"`
+		Ask         decimal.Decimal    `json:"Ask"`
+		Candles     []pkgmarket.Candle `json:"Candles"`
 	}
 
-	out := marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles}
-
-	// historicalモードでは Labs API は使わない
-	if hb == nil {
-		if cal, err := mb.FetchCalendar(ctx, pairVal, *calendarPeriod); err == nil {
-			out.Calendar = cal
-		}
-		if ratios, err := mb.FetchPositionRatios(ctx, pairVal, *ratiosPeriod); err == nil {
-			out.PositionRatios = ratios
-		}
-		if cot, err := mb.FetchCommitmentsOfTraders(ctx, pairVal); err == nil {
-			out.COT = cot
-		}
-		if ob, err := mb.FetchOrderBook(ctx, pairVal, *orderbookPeriod); err == nil {
-			out.OrderBook = ob
-		}
-	}
-
-	printJSON(out)
+	printJSON(marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles})
 }
 
 func restoreHistoricalBroker(stateDir, csvPath string, pair currency.Pair) (broker.HistoricalBroker, error) {

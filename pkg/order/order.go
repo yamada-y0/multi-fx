@@ -73,49 +73,6 @@ type AccountInfo struct {
 	MarginAvail   decimal.Decimal // 利用可能証拠金
 }
 
-// CalendarEvent は経済指標・イベント情報
-type CalendarEvent struct {
-	Title     string
-	Timestamp time.Time
-	Unit      string
-	Currency  string
-	Forecast  string
-	Previous  string
-	Actual    string
-	Market    string
-}
-
-// PositionRatioPoint はある時点のロング/ショート比率
-type PositionRatioPoint struct {
-	Timestamp    time.Time
-	LongRatio    decimal.Decimal // ロング比率（%）
-	ExchangeRate decimal.Decimal
-}
-
-// CommitmentsOfTraders はCFTC大口筋ポジション（週次）
-type CommitmentsOfTraders struct {
-	Date          time.Time
-	Price         decimal.Decimal
-	OpenInterest  decimal.Decimal // グロスOI
-	NonCommLong   decimal.Decimal // 非商用ロング
-	NonCommShort  decimal.Decimal // 非商用ショート
-}
-
-// OrderBookPoint はオーダーブックの1価格帯のデータ
-type OrderBookPoint struct {
-	Price        decimal.Decimal
-	OrderLong    decimal.Decimal // ロング注文割合（%）
-	OrderShort   decimal.Decimal // ショート注文割合（%）
-	PositionLong decimal.Decimal // ロング建玉割合（%）
-	PositionShort decimal.Decimal // ショート建玉割合（%）
-}
-
-// OrderBook はある時点のオーダーブックスナップショット
-type OrderBook struct {
-	Timestamp time.Time
-	Rate      decimal.Decimal
-	Points    []OrderBookPoint
-}
 
 // Position はブローカーが保持するポジション
 type Position struct {

@@ -174,10 +174,16 @@ func (b *oandaBroker) FetchAccount(ctx context.Context) (pkgorder.AccountInfo, e
 
 // --- FetchRate ---
 
+// FetchRate は /v3/instruments/{instrument}/candles?price=BA&count=1 で最新Bid/Askを取得する。
+// accountID 不要のため MarketBroker として単独で使える。
 func (b *oandaBroker) FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error) {
 	instrument := toInstrument(pair)
-	path := "/v3/accounts/" + b.accountID + "/pricing"
-	resp, err := b.get(ctx, path, map[string]string{"instruments": instrument})
+	path := "/v3/instruments/" + instrument + "/candles"
+	resp, err := b.get(ctx, path, map[string]string{
+		"price":       "BA",
+		"granularity": "S5",
+		"count":       "1",
+	})
 	if err != nil {
 		return currency.Rate{}, fmt.Errorf("oanda: fetch rate: %w", err)
 	}
@@ -190,36 +196,26 @@ func (b *oandaBroker) FetchRate(ctx context.Context, pair currency.Pair) (curren
 	}
 
 	var result struct {
-		Prices []struct {
-			Instrument string `json:"instrument"`
-			Bids       []struct {
-				Price string `json:"price"`
-			} `json:"bids"`
-			Asks []struct {
-				Price string `json:"price"`
-			} `json:"asks"`
+		Candles []struct {
 			Time string `json:"time"`
-		} `json:"prices"`
+			Bid  struct {
+				C string `json:"c"`
+			} `json:"bid"`
+			Ask struct {
+				C string `json:"c"`
+			} `json:"ask"`
+		} `json:"candles"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
-		return currency.Rate{}, fmt.Errorf("oanda: parse pricing: %w", err)
+		return currency.Rate{}, fmt.Errorf("oanda: parse rate: %w", err)
 	}
-	if len(result.Prices) == 0 {
-		return currency.Rate{}, fmt.Errorf("oanda: no price for %s", pair)
+	if len(result.Candles) == 0 {
+		return currency.Rate{}, fmt.Errorf("oanda: no candle for %s", pair)
 	}
-	p := result.Prices[0]
-	if len(p.Bids) == 0 || len(p.Asks) == 0 {
-		return currency.Rate{}, fmt.Errorf("oanda: empty bid/ask for %s", pair)
-	}
-	bid, err := decimal.NewFromString(p.Bids[0].Price)
-	if err != nil {
-		return currency.Rate{}, fmt.Errorf("oanda: parse bid: %w", err)
-	}
-	ask, err := decimal.NewFromString(p.Asks[0].Price)
-	if err != nil {
-		return currency.Rate{}, fmt.Errorf("oanda: parse ask: %w", err)
-	}
-	ts, _ := time.Parse(time.RFC3339Nano, p.Time)
+	c := result.Candles[0]
+	bid, _ := decimal.NewFromString(c.Bid.C)
+	ask, _ := decimal.NewFromString(c.Ask.C)
+	ts, _ := time.Parse(time.RFC3339Nano, c.Time)
 	return currency.Rate{Pair: pair, Bid: bid, Ask: ask, Timestamp: ts}, nil
 }
 
@@ -603,241 +599,3 @@ func (b *oandaBroker) FetchFillEvents(ctx context.Context, sinceID string) ([]pk
 	return events, nil
 }
 
-// --- FetchCalendar ---
-
-func (b *oandaBroker) FetchCalendar(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.CalendarEvent, error) {
-	instrument := toInstrument(pair)
-	// Forex Labs は /labs/v1/ エンドポイントを使う（ホストは同じ）
-	path := "/labs/v1/calendar"
-	resp, err := b.get(ctx, path, map[string]string{
-		"instrument": instrument,
-		"period":     strconv.Itoa(period),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("oanda: fetch calendar: %w", err)
-	}
-	data, err := readBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkStatus(resp, data, http.StatusOK); err != nil {
-		return nil, err
-	}
-
-	var raw []struct {
-		Title     string  `json:"title"`
-		Timestamp float64 `json:"timestamp"`
-		Unit      string  `json:"unit"`
-		Currency  string  `json:"currency"`
-		Forecast  string  `json:"forecast"`
-		Previous  string  `json:"previous"`
-		Actual    string  `json:"actual"`
-		Market    string  `json:"market"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("oanda: parse calendar: %w", err)
-	}
-
-	events := make([]pkgorder.CalendarEvent, 0, len(raw))
-	for _, r := range raw {
-		events = append(events, pkgorder.CalendarEvent{
-			Title:     r.Title,
-			Timestamp: time.Unix(int64(r.Timestamp), 0).UTC(),
-			Unit:      r.Unit,
-			Currency:  r.Currency,
-			Forecast:  r.Forecast,
-			Previous:  r.Previous,
-			Actual:    r.Actual,
-			Market:    r.Market,
-		})
-	}
-	return events, nil
-}
-
-// --- FetchPositionRatios ---
-
-func (b *oandaBroker) FetchPositionRatios(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.PositionRatioPoint, error) {
-	instrument := toInstrument(pair)
-	path := "/labs/v1/historical_position_ratios"
-	resp, err := b.get(ctx, path, map[string]string{
-		"instrument": instrument,
-		"period":     strconv.Itoa(period),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("oanda: fetch position ratios: %w", err)
-	}
-	data, err := readBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkStatus(resp, data, http.StatusOK); err != nil {
-		return nil, err
-	}
-
-	// レスポンス形式: {"data":{"USD_JPY":{"data":[[timestamp, longRatio, exchangeRate], ...], "label":"USD/JPY"}}}
-	var raw struct {
-		Data map[string]struct {
-			Data [][]float64 `json:"data"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("oanda: parse position ratios: %w", err)
-	}
-
-	var points []pkgorder.PositionRatioPoint
-	for _, d := range raw.Data {
-		for _, row := range d.Data {
-			if len(row) < 3 {
-				continue
-			}
-			longRatio := decimal.NewFromFloat(row[1])
-			exchangeRate := decimal.NewFromFloat(row[2])
-			points = append(points, pkgorder.PositionRatioPoint{
-				Timestamp:    time.Unix(int64(row[0]), 0).UTC(),
-				LongRatio:    longRatio,
-				ExchangeRate: exchangeRate,
-			})
-		}
-		break // 最初のペアのみ
-	}
-	return points, nil
-}
-
-// --- FetchCommitmentsOfTraders ---
-
-func (b *oandaBroker) FetchCommitmentsOfTraders(ctx context.Context, pair currency.Pair) ([]pkgorder.CommitmentsOfTraders, error) {
-	instrument := toInstrument(pair)
-	path := "/labs/v1/commitments_of_traders"
-	resp, err := b.get(ctx, path, map[string]string{"instrument": instrument})
-	if err != nil {
-		return nil, fmt.Errorf("oanda: fetch COT: %w", err)
-	}
-	data, err := readBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkStatus(resp, data, http.StatusOK); err != nil {
-		return nil, err
-	}
-
-	// レスポンス形式: {"USD_JPY":{"data":[[date, price, OI, nonCommLong, nonCommShort], ...], "label":"..."}}
-	var raw map[string]struct {
-		Data [][]float64 `json:"data"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("oanda: parse COT: %w", err)
-	}
-
-	var cots []pkgorder.CommitmentsOfTraders
-	for _, d := range raw {
-		for _, row := range d.Data {
-			if len(row) < 5 {
-				continue
-			}
-			cots = append(cots, pkgorder.CommitmentsOfTraders{
-				Date:         time.Unix(int64(row[0]), 0).UTC(),
-				Price:        decimal.NewFromFloat(row[1]),
-				OpenInterest: decimal.NewFromFloat(row[2]),
-				NonCommLong:  decimal.NewFromFloat(row[3]),
-				NonCommShort: decimal.NewFromFloat(row[4]),
-			})
-		}
-		break // 最初のペアのみ
-	}
-	return cots, nil
-}
-
-// --- FetchOrderBook ---
-
-// FetchOrderBook は v3 の orderBook と positionBook を取得してマージして返す。
-// period パラメータは v3 では未使用（スナップショット取得のみ）。
-func (b *oandaBroker) FetchOrderBook(ctx context.Context, pair currency.Pair, _ int) ([]pkgorder.OrderBook, error) {
-	instrument := toInstrument(pair)
-
-	type bucket struct {
-		Price             string `json:"price"`
-		LongCountPercent  string `json:"longCountPercent"`
-		ShortCountPercent string `json:"shortCountPercent"`
-	}
-	type bookResponse struct {
-		Instrument  string   `json:"instrument"`
-		Time        string   `json:"time"`
-		Price       string   `json:"price"`
-		BucketWidth string   `json:"bucketWidth"`
-		Buckets     []bucket `json:"buckets"`
-	}
-
-	fetchBook := func(bookType string) (bookResponse, error) {
-		path := "/v3/instruments/" + instrument + "/" + bookType
-		resp, err := b.get(ctx, path, nil)
-		if err != nil {
-			return bookResponse{}, fmt.Errorf("oanda: fetch %s: %w", bookType, err)
-		}
-		data, err := readBody(resp)
-		if err != nil {
-			return bookResponse{}, err
-		}
-		if err := checkStatus(resp, data, http.StatusOK); err != nil {
-			return bookResponse{}, err
-		}
-		var result map[string]bookResponse
-		if err := json.Unmarshal(data, &result); err != nil {
-			return bookResponse{}, fmt.Errorf("oanda: parse %s: %w", bookType, err)
-		}
-		return result[bookType], nil
-	}
-
-	orderBook, err := fetchBook("orderBook")
-	if err != nil {
-		return nil, err
-	}
-	positionBook, err := fetchBook("positionBook")
-	if err != nil {
-		return nil, err
-	}
-
-	ts, _ := time.Parse(time.RFC3339, orderBook.Time)
-	rate, _ := decimal.NewFromString(orderBook.Price)
-
-	// orderBook と positionBook は価格帯が異なる（orderBook はオフセット、positionBook は絶対価格）
-	// それぞれ独立して Points に格納し、Price で区別できるようにする
-	points := make([]pkgorder.OrderBookPoint, 0, len(orderBook.Buckets)+len(positionBook.Buckets))
-	for _, ob := range orderBook.Buckets {
-		price, _ := decimal.NewFromString(ob.Price)
-		orderLong, _ := decimal.NewFromString(ob.LongCountPercent)
-		orderShort, _ := decimal.NewFromString(ob.ShortCountPercent)
-		points = append(points, pkgorder.OrderBookPoint{
-			Price:      price,
-			OrderLong:  orderLong,
-			OrderShort: orderShort,
-		})
-	}
-	for _, pb := range positionBook.Buckets {
-		price, _ := decimal.NewFromString(pb.Price)
-		positionLong, _ := decimal.NewFromString(pb.LongCountPercent)
-		positionShort, _ := decimal.NewFromString(pb.ShortCountPercent)
-		// 既存エントリがあれば上書き、なければ追加
-		found := false
-		for i, p := range points {
-			if p.Price.Equal(price) {
-				points[i].PositionLong = positionLong
-				points[i].PositionShort = positionShort
-				found = true
-				break
-			}
-		}
-		if !found {
-			points = append(points, pkgorder.OrderBookPoint{
-				Price:         price,
-				PositionLong:  positionLong,
-				PositionShort: positionShort,
-			})
-		}
-	}
-
-	return []pkgorder.OrderBook{{
-		Timestamp: ts,
-		Rate:      rate,
-		Points:    points,
-	}}, nil
-}

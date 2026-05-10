@@ -37,7 +37,7 @@ type TradingBroker interface {
 	Name() string
 }
 
-// MarketBroker はレート・ローソク足・市場情報取得の抽象インターフェース
+// MarketBroker はレート・ローソク足取得の抽象インターフェース
 type MarketBroker interface {
 	// FetchRate は現在のレートを返す
 	FetchRate(ctx context.Context, pair currency.Pair) (currency.Rate, error)
@@ -45,18 +45,6 @@ type MarketBroker interface {
 	// FetchCandles は指定ペア・granularity で直近 count 本のローソク足を新しい順で返す
 	// granularity は "M1"/"M5"/"H1" 等（OANDA形式）
 	FetchCandles(ctx context.Context, pair currency.Pair, granularity string, count int) ([]market.Candle, error)
-
-	// FetchCalendar は経済指標カレンダーを返す。period は秒単位（86400=1日など）
-	FetchCalendar(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.CalendarEvent, error)
-
-	// FetchPositionRatios はヒストリカルなロング/ショート比率を返す。period は秒単位
-	FetchPositionRatios(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.PositionRatioPoint, error)
-
-	// FetchCommitmentsOfTraders はCFTC大口筋ポジションを返す
-	FetchCommitmentsOfTraders(ctx context.Context, pair currency.Pair) ([]pkgorder.CommitmentsOfTraders, error)
-
-	// FetchOrderBook はオーダーブックのスナップショットを返す。period は秒単位
-	FetchOrderBook(ctx context.Context, pair currency.Pair, period int) ([]pkgorder.OrderBook, error)
 
 	// Name はブローカー識別子（ログ・メトリクス用）
 	Name() string
