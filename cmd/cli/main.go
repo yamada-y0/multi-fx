@@ -17,6 +17,7 @@ import (
 	"github.com/yamada/fxd/internal/broker"
 	"github.com/yamada/fxd/internal/store"
 	"github.com/yamada/fxd/pkg/currency"
+	"github.com/yamada/fxd/pkg/indicator"
 	pkgmarket "github.com/yamada/fxd/pkg/market"
 	pkgorder "github.com/yamada/fxd/pkg/order"
 )
@@ -236,10 +237,17 @@ func runMarket(args []string) {
 		Bid         decimal.Decimal          `json:"Bid"`
 		Ask         decimal.Decimal          `json:"Ask"`
 		Candles     []pkgmarket.Candle       `json:"Candles"`
+		Indicators  indicator.Result         `json:"Indicators"`
 		Calendar    []pkgorder.CalendarEvent `json:"Calendar,omitempty"`
 	}
 
-	out := marketOutput{CurrentTime: currentTime, Bid: rate.Bid, Ask: rate.Ask, Candles: candles}
+	out := marketOutput{
+		CurrentTime: currentTime,
+		Bid:         rate.Bid,
+		Ask:         rate.Ask,
+		Candles:     candles,
+		Indicators:  indicator.Calc(candles),
+	}
 
 	// historicalモードではカレンダーは取得しない
 	if hb == nil {
