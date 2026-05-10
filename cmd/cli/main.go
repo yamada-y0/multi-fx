@@ -243,7 +243,7 @@ func runMarket(args []string) {
 	if hb != nil {
 		currentTime = hb.CurrentTime()
 	} else {
-		currentTime = rate.Timestamp
+		currentTime = time.Now().UTC()
 	}
 
 	type marketOutput struct {
