@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
@@ -19,7 +20,11 @@ import (
 	"github.com/yamada/fxd/pkg/currency"
 )
 
+var jst = time.FixedZone("JST", 9*60*60)
+
 func main() {
+	time.Local = jst
+
 	stateDir := flag.String("state-dir", "", "エージェントディレクトリパス（必須）")
 	csvPath := flag.String("data", "", "historical モード: Dukascopy CSVファイルパス")
 	pair := flag.String("pair", "USDJPY", "通貨ペア")
@@ -83,11 +88,11 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	}
 
 	if !result.ShouldWakeup {
-		log.Printf("[%s] WakeupCondition未達 → スキップ", rate.Timestamp.Format("2006-01-02T15:04Z"))
+		log.Printf("[%s] WakeupCondition未達 → スキップ", rate.Timestamp.In(jst).Format("2006-01-02T15:04 JST"))
 		return false, nil
 	}
 
-	log.Printf("[%s] Claude起動 (fills=%d)", rate.Timestamp.Format("2006-01-02T15:04Z"), result.FillCount)
+	log.Printf("[%s] Claude起動 (fills=%d)", rate.Timestamp.In(jst).Format("2006-01-02T15:04 JST"), result.FillCount)
 
 	prevSessionID, _ := st.LoadSessionID(ctx)
 	sessionID, err := runClaude(stateDir, prevSessionID)

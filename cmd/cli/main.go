@@ -241,11 +241,12 @@ func runMarket(args []string) {
 		log.Fatalf("fetch rate: %v", err)
 	}
 
+	jst := time.FixedZone("JST", 9*60*60)
 	var currentTime time.Time
 	if hb != nil {
-		currentTime = hb.CurrentTime()
+		currentTime = hb.CurrentTime().In(jst)
 	} else {
-		currentTime = time.Now().UTC()
+		currentTime = time.Now().In(jst)
 	}
 
 	type marketOutput struct {
