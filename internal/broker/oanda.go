@@ -94,6 +94,16 @@ func (b *oandaBroker) post(ctx context.Context, path string, body io.Reader) (*h
 	return b.httpClient.Do(req)
 }
 
+func (b *oandaBroker) put(ctx context.Context, path string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, b.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.token)
+	req.Header.Set("Content-Type", "application/json")
+	return b.httpClient.Do(req)
+}
+
 func (b *oandaBroker) delete(ctx context.Context, path string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, b.baseURL+path, nil)
 	if err != nil {
@@ -382,7 +392,7 @@ func (b *oandaBroker) closePosition(ctx context.Context, o pkgorder.Order) (Orde
 
 func (b *oandaBroker) CancelOrder(ctx context.Context, id OrderID) error {
 	path := "/v3/accounts/" + b.accountID + "/orders/" + string(id) + "/cancel"
-	resp, err := b.post(ctx, path, nil)
+	resp, err := b.put(ctx, path, nil)
 	if err != nil {
 		return fmt.Errorf("oanda: cancel order: %w", err)
 	}

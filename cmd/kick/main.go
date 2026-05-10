@@ -170,13 +170,14 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 	}
 
 	cmd := exec.Command(claudePath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
+
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("claude exited: %w", err)
+		return "", fmt.Errorf("claude exited: %w\nstderr: %s", err, stderr.String())
 	}
 
 	var result struct {

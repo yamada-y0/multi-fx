@@ -34,6 +34,8 @@ func main() {
 		runSnapshot(os.Args[2:])
 	case "submit-order":
 		runSubmitOrder(os.Args[2:])
+	case "cancel-order":
+		runCancelOrder(os.Args[2:])
 	case "set-wakeup":
 		runSetWakeup(os.Args[2:])
 	case "market":
@@ -418,6 +420,30 @@ func runSubmitOrder(args []string) {
 	}
 
 	printJSON(map[string]string{"order_id": string(orderID)})
+}
+
+func runCancelOrder(args []string) {
+	fs := flag.NewFlagSet("cancel-order", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "", "エージェントディレクトリパス（必須）")
+	orderID := fs.String("order-id", "", "キャンセル対象のOrderID（必須）")
+	fs.Parse(args)
+
+	if *stateDir == "" || *orderID == "" {
+		fmt.Fprintln(os.Stderr, "Usage: fxd cancel-order --state-dir <dir> --order-id <id>")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	tb, _, _, err := setupBrokers(*stateDir, "", currency.Pair("USDJPY"))
+	if err != nil {
+		log.Fatalf("setup broker: %v", err)
+	}
+
+	if err := tb.CancelOrder(ctx, broker.OrderID(*orderID)); err != nil {
+		log.Fatalf("cancel order: %v", err)
+	}
+
+	printJSON(map[string]string{"cancelled_order_id": *orderID})
 }
 
 func runSetWakeup(args []string) {
