@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yamada/fxd/cmd/common"
 	"github.com/yamada/fxd/internal/agent"
 	"github.com/yamada/fxd/internal/broker"
 	"github.com/yamada/fxd/internal/store"
@@ -145,30 +146,21 @@ func setupBrokers(stateDir, csvPath, pairStr string) (broker.TradingBroker, brok
 	pair := currency.Pair(pairStr)
 
 	if csvPath == "" {
-		tb, mb, err := setupOandaBrokers()
+		tb, mb, err := common.SetupOandaBrokers()
 		if err != nil {
 			return nil, nil, nil, false, err
 		}
 		return tb, mb, nil, false, nil
 	}
 
-	b, err := broker.NewHistoricalBroker(pair, csvPath)
+	hb, err := common.RestoreHistoricalBroker(stateDir, csvPath, pair)
 	if err != nil {
-		return nil, nil, nil, false, fmt.Errorf("historical broker: %w", err)
+		return nil, nil, nil, false, err
 	}
-
-	snapPath := filepath.Join(stateDir, "broker_snapshot.json")
-	snap, err := broker.LoadHistoricalBrokerSnapshot(snapPath)
-	if err != nil {
-		return nil, nil, nil, false, fmt.Errorf("load broker snapshot: %w", err)
-	}
-	b.Restore(snap)
-
-	if !b.Advance() {
+	if !hb.Advance() {
 		return nil, nil, nil, true, nil
 	}
-
-	return b, b, b, false, nil
+	return hb, hb, hb, false, nil
 }
 
 func runClaude(stateDir, prevSessionID string) (string, error) {
@@ -404,27 +396,3 @@ func resolveClaude() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// setupOandaBrokers は取引用 TradingBroker と市場データ用 MarketBroker を返す。
-// OANDA_MARKET_API_TOKEN / OANDA_MARKET_PRACTICE が設定されていればlive環境のMarketBrokerを使う。
-func setupOandaBrokers() (broker.TradingBroker, broker.MarketBroker, error) {
-	token := os.Getenv("OANDA_API_TOKEN")
-	accountID := os.Getenv("OANDA_ACCOUNT_ID")
-	if token == "" {
-		return nil, nil, fmt.Errorf("OANDA_API_TOKEN is not set")
-	}
-	if accountID == "" {
-		return nil, nil, fmt.Errorf("OANDA_ACCOUNT_ID is not set")
-	}
-	practice := os.Getenv("OANDA_PRACTICE") != "false"
-	tb := broker.NewOandaTradingBroker(token, accountID, practice)
-
-	marketToken := os.Getenv("OANDA_MARKET_API_TOKEN")
-	marketPractice := os.Getenv("OANDA_MARKET_PRACTICE") != "false"
-	var mb broker.MarketBroker
-	if marketToken != "" {
-		mb = broker.NewOandaMarketBroker(marketToken, marketPractice)
-	} else {
-		mb = broker.NewOandaMarketBroker(token, practice)
-	}
-	return tb, mb, nil
-}
