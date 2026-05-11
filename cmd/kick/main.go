@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -127,6 +130,9 @@ func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
 	if sessionID != "" {
 		if err := saveSessionLog(stateDir, sessionID); err != nil {
 			log.Printf("warn: save session log: %v", err)
+		}
+		if err := sendLineNotify(stateDir); err != nil {
+			log.Printf("warn: line notify: %v", err)
 		}
 	}
 
@@ -312,6 +318,66 @@ func formatSessionLog(sessionID string, data []byte) string {
 	}
 
 	return sb.String()
+}
+
+func sendLineNotify(stateDir string) error {
+	token := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN")
+	userID := os.Getenv("LINE_USER_ID")
+	if token == "" || userID == "" {
+		return nil // 未設定なら通知しない
+	}
+
+	logPath := filepath.Join(stateDir, "session.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return fmt.Errorf("read session log: %w", err)
+	}
+
+	// 最後の ### **Assistant** ブロックを取得
+	content := string(data)
+	const marker = "### **Assistant**"
+	idx := strings.LastIndex(content, marker)
+	var msg string
+	if idx >= 0 {
+		msg = strings.TrimSpace(content[idx+len(marker):])
+	} else {
+		msg = strings.TrimSpace(content)
+	}
+
+	// LINEの1メッセージ上限は5000文字
+	const maxLen = 5000
+	runes := []rune(msg)
+	if len(runes) > maxLen {
+		msg = string(runes[:maxLen-3]) + "..."
+	}
+	if msg == "" {
+		return nil
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"to": userID,
+		"messages": []map[string]string{
+			{"type": "text", "text": msg},
+		},
+	})
+	req, err := http.NewRequest("POST", "https://api.line.me/v2/bot/message/push", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, b)
+	}
+	log.Printf("LINE通知送信完了")
+	return nil
 }
 
 func resolveMultiFX() (string, error) {
