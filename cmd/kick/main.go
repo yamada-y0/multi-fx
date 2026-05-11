@@ -38,7 +38,7 @@ func main() {
 	}
 
 	for {
-		done, err := runOnce(*stateDir, *csvPath, *pair)
+		done, err := runWithRetry(*stateDir, *csvPath, *pair)
 		if err != nil {
 			log.Fatalf("kick: %v", err)
 		}
@@ -46,6 +46,23 @@ func main() {
 			break
 		}
 	}
+}
+
+func runWithRetry(stateDir, csvPath, pairStr string) (bool, error) {
+	const maxRetries = 3
+	for i := range maxRetries {
+		done, err := runOnce(stateDir, csvPath, pairStr)
+		if err == nil {
+			return done, nil
+		}
+		if i < maxRetries-1 {
+			log.Printf("kick: retrying (%d/%d): %v", i+1, maxRetries-1, err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		return false, err
+	}
+	return false, nil
 }
 
 func runOnce(stateDir, csvPath, pairStr string) (done bool, err error) {
@@ -182,7 +199,7 @@ func runClaude(stateDir, prevSessionID string) (string, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("claude exited: %w\nstderr: %s", err, stderr.String())
+		return "", fmt.Errorf("claude exited: %w\nstderr: %s\nstdout: %s", err, stderr.String(), string(out))
 	}
 
 	var result struct {
